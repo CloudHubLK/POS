@@ -732,7 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadPersistentDatabase() {
-    // 1. Load Catalog Items
+    // 1. Load Catalog Items — localStorage acts as an instant-paint cache only.
     const cachedCatalog = localStorage.getItem('pos_catalog_db');
     if (cachedCatalog) {
       try {
@@ -745,6 +745,15 @@ document.addEventListener('DOMContentLoaded', () => {
       // Seed initial Retail catalog items as baseline default
       catalogItems = [ ...INDUSTRY_PROFILES[activeIndustry].presets ];
       localStorage.setItem('pos_catalog_db', JSON.stringify(catalogItems));
+    }
+
+    // 1b. If a Zoho Books connection is active, the datastore (not localStorage) is the
+    // source of truth for synced products — the backend already persists every sync to
+    // the 'Items' table via /api/sync/books. Re-fetch it here so a refresh, a different
+    // browser/device, or a stale/cleared localStorage never makes synced products
+    // "disappear" — they always come back from the server.
+    if (localStorage.getItem('zoho_active_connection')) {
+      hydrateCatalogFromServer();
     }
 
     // 2. Load CRM Contacts
@@ -865,6 +874,31 @@ document.addEventListener('DOMContentLoaded', () => {
     renderFloorMapGrid();
     renderKdsQueueBoards();
     syncCrmSelectOptions();
+  }
+
+  // Pull the server-persisted catalog (Catalyst 'Items' datastore table) and merge it
+  // in, overwriting the localStorage cache. This is what actually fixes "products
+  // disappear after refresh": the backend already saves every sync permanently, this
+  // just makes the client trust that instead of only trusting localStorage.
+  async function hydrateCatalogFromServer() {
+    try {
+      const res = await callApi('/api/items', 'GET');
+      if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+        // Preserve any locally-added custom items that haven't been pushed to Books
+        // (no books_item_id), then layer the server's synced items on top as truth.
+        const localCustomOnly = (catalogItems || []).filter(item => !item.books_item_id);
+        catalogItems = [ ...res.data, ...localCustomOnly ];
+        localStorage.setItem('pos_catalog_db', JSON.stringify(catalogItems));
+
+        if (statTotalItems) statTotalItems.textContent = catalogItems.length.toString();
+        rebuildIndustryCatalogGrid();
+        renderProductsCatalogCrudTable();
+      }
+    } catch (err) {
+      // Offline or backend cold-start — silently keep whatever is already in
+      // localStorage/presets rather than interrupting the user.
+      console.warn('[hydrateCatalogFromServer] Could not refresh catalog from datastore:', err.message || err);
+    }
   }
 
   // Apply customizable configs reactively across interface headings & receipts

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-counter-950 text-paper font-body antialiased;
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(200,155,92,0.08), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(74,222,157,0.05), transparent 40%);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #343A44; border-radius: 8px; }
+
+.perspective-deck {
+  perspective: 1400px;
+}
+
+.tilt-card {
+  transform-style: preserve-3d;
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+  will-change: transform;
+}
+
+/* Respect reduced-motion preference across the whole app */
+@media (prefers-reduced-motion: reduce) {
+  .tilt-card { transition: none !important; transform: none !important; }
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid theme('colors.brass.400');
+  outline-offset: 2px;
+}

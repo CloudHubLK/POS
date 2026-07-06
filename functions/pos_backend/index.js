@@ -473,7 +473,42 @@ app.get('/api/auth/me', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
     const user = await catalystApp.userManagement().getCurrentUser();
-    res.json({ success: true, email: user.email, user_id: user.user_id });
+
+    // Auto-provision a POS staff record for this Catalyst-authenticated user
+    // if one doesn't already exist. Without this, users could sign in to the
+    // Catalyst app itself but never appear in the POS staff/Users list, since
+    // that list was previously only populated via the manual invite/OTP flow.
+    let posUser = null;
+    try {
+      const userKey = `user_${user.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const existing = await safeZcql(catalystApp, `SELECT config_value FROM Configurations WHERE config_key = '${userKey}'`);
+
+      if (existing && existing.length > 0 && existing[0].Configurations.config_value !== 'used') {
+        try { posUser = JSON.parse(existing[0].Configurations.config_value); } catch (e) { posUser = null; }
+      }
+
+      if (!posUser) {
+        // First time this Catalyst user has ever hit the POS backend — create their record.
+        // Default role is 'Cashier'; an admin can promote them later via /api/users/update-role.
+        const defaultRole = 'Cashier';
+        posUser = {
+          email: user.email,
+          name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+          role: defaultRole,
+          permissions: getRolePermissions(defaultRole),
+          status: 'active',
+          auto_provisioned: true,
+          created_at: Date.now()
+        };
+        await safeUpsertConfig(catalystApp, userKey, JSON.stringify(posUser));
+        console.log(`[AUTO-PROVISION] Created POS user record for ${user.email}`);
+      }
+    } catch (provisionErr) {
+      // Never block login/auth-check if provisioning fails — just log it.
+      console.warn('[AUTO-PROVISION] Failed to auto-create POS user record:', provisionErr.message);
+    }
+
+    res.json({ success: true, email: user.email, user_id: user.user_id, pos_user: posUser });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
@@ -1470,8 +1505,10 @@ app.post('/api/sync/books', async (req, res) => {
         tax_id: item.tax_id || '',
         tax_percentage: parseFloat(item.tax_percentage) || 0.0,
         stock: parseFloat(item.stock_on_hand) || 999.0,
-        category: item.category || 'General',
-        industry: 'Retail'
+        category: item.category || 'General'
+        // NOTE: no `industry` field here on purpose. Books items are real inventory,
+        // not a demo preset — they should show under whichever industry template is
+        // active. The catalog grid filter treats a missing `industry` as "show always".
       })),
       summary: {
         total_fetched: booksItems.length,
