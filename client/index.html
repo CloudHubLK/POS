@@ -1,0 +1,2143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoho POS Suite — Enterprise Cloud Console</title>
+  <meta name="description" content="Premium corporate serverless POS application integrated with Zoho Books, running on Zoho Catalyst.">
+  
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="style.css">
+  <script src="https://static.zohocdn.com/catalyst/sdk/js/4.0.0/catalystWebSDK.js"></script>
+  <script src="/__catalyst/sdk/init.js"></script>
+  <script src="app.js?v=3" defer></script>
+</head>
+<body class="light-theme">
+
+  <!-- Premium Glassmorphic Cloud Authentication Splash Overlay -->
+  <div class="auth-overlay-backdrop" id="auth-overlay-backdrop">
+    <div class="auth-overlay-card">
+      <div class="auth-card-glow"></div>
+      <div class="auth-brand">
+        <div class="auth-logo">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+        </div>
+        <h2>ZOHO POS SUITE</h2>
+        <span>Enterprise Cloud Console</span>
+      </div>
+      
+      <p class="auth-desc">Secure multi-tenant Point of Sale system synced in real-time with Zoho Books Ledger.</p>
+      
+      <div class="auth-action-area">
+        <button type="button" class="btn-auth-primary" id="btn-auth-login">
+          <i class="fa-solid fa-right-to-bracket"></i> Sign In to POS Console
+        </button>
+        <button type="button" class="btn-auth-secondary" id="btn-auth-offline-bypass" style="display: none; width: 100%; margin-top: 10px;">
+          <i class="fa-solid fa-plug-slash"></i> Bypass (Local Sandbox)
+        </button>
+      </div>
+      
+      <!-- Real-time Auth Diagnostics Area -->
+      <div id="auth-diagnostics-area" style="margin-top: 15px; width: 100%; display: none; flex-direction: column; gap: 8px;">
+        <div id="auth-error-msg" style="color: #f87171; font-size: 11px; line-height: 1.4; text-align: left; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.15); padding: 10px 12px; border-radius: 8px; font-family: monospace; word-break: break-all; max-height: 120px; overflow-y: auto;"></div>
+        <button type="button" id="btn-auth-diagnostics-retry" style="background: rgba(255, 255, 255, 0.08); color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s ease;">
+          <i class="fa-solid fa-rotate"></i> Re-Verify Session
+        </button>
+      </div>
+      
+      <div class="auth-footer">
+        <span>Powered by Zoho Catalyst Serverless • Production Active</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-container">
+    
+    <!-- Primary Collapsible Sidebar Navigation -->
+    <aside class="sidebar" id="primary-sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <i class="fa-solid fa-hotel logo-icon"></i>
+        </div>
+        <div class="brand-text">
+          <h1>ZOHO POS</h1>
+          <span>ENTERPRISE SUITE V3</span>
+        </div>
+      </div>
+      
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard-tab" id="btn-nav-dashboard">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="register-tab" id="btn-nav-register">
+          <i class="fa-solid fa-cash-register"></i>
+          <span>POS Register</span>
+        </button>
+        <button class="nav-item" data-tab="products-tab" id="btn-nav-products">
+          <i class="fa-solid fa-box-open"></i>
+          <span>Products & Stock</span>
+        </button>
+        <button class="nav-item" data-tab="orders-tab" id="btn-nav-orders">
+          <i class="fa-solid fa-receipt"></i>
+          <span>Transactions & Returns</span>
+        </button>
+        <button class="nav-item" data-tab="kds-tab" id="btn-nav-kds">
+          <i class="fa-solid fa-kitchen-set"></i>
+          <span>Kitchen KDS</span>
+        </button>
+        <button class="nav-item" data-tab="crm-tab" id="btn-nav-crm">
+          <i class="fa-solid fa-users-gear"></i>
+          <span>Customers & CRM</span>
+        </button>
+        <button class="nav-item" data-tab="shifts-tab" id="btn-nav-shifts">
+          <i class="fa-solid fa-vault"></i>
+          <span>Daily Shifts</span>
+        </button>
+        <button class="nav-item" data-tab="settings-tab" id="btn-nav-settings">
+          <i class="fa-solid fa-sliders"></i>
+          <span>Settings Config</span>
+        </button>
+      </nav>
+      
+      <!-- Connection Indicator in Sidebar Footer -->
+      <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="sandbox-indicator-badge active" id="production-indicator">
+          <span class="title"><i class="fa-solid fa-cloud"></i> PRODUCTION ACTIVE</span>
+          <span class="desc" id="production-desc">Cloud Multi-tenant Sync active.</span>
+        </div>
+        <div class="sync-status-indicator offline" id="global-sync-indicator">
+          <span class="status-dot"></span>
+          <span class="status-label" id="global-sync-label">Zoho Books: Disconnected</span>
+        </div>
+        <div class="sync-status-indicator offline hidden" id="offline-sync-indicator" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.15);">
+          <span class="status-dot" style="background: #f59e0b; animation: pulse 1.5s infinite;"></span>
+          <span class="status-label" style="color: #f59e0b;">Pending Syncs: <strong id="offline-sync-count">0</strong></span>
+        </div>
+        <button class="btn-sidebar-signout" id="btn-sidebar-signout" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 8px 12px; border-radius: var(--border-radius-md); background: rgba(239, 68, 68, 0.08); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.15); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+          <i class="fa-solid fa-right-from-bracket"></i> Sign Out Account
+        </button>
+      </div>
+    </aside>
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Top Utility Header -->
+      <header class="top-header">
+        <div class="header-left">
+          <button class="menu-toggle-btn" id="menu-toggle-btn" title="Toggle Navigation">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+          <div class="header-search">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="search-input" placeholder="Search product name, SKU, categories...">
+          </div>
+        </div>
+        
+        <div class="header-right">
+          <!-- Active Shift Badge -->
+          <div class="header-badge warning" id="shift-active-badge">
+            <i class="fa-solid fa-unlock-keyhole"></i>
+            <span id="shift-badge-text">SHIFT: CLOSED</span>
+          </div>
+
+          <!-- Active Industry Indicator -->
+          <div class="header-badge industry-badge" id="industry-active-badge">
+            <i class="fa-solid fa-store"></i>
+            <span id="industry-badge-text">Retail</span>
+          </div>
+
+          <div class="header-clock" id="clock-display">12:00:00 PM</div>
+          
+          <!-- Currency Selector -->
+          <div class="currency-selector-container" style="display: flex; align-items: center; gap: 8px;">
+            <select id="currency-select" class="role-select" style="padding: 6px 12px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-family: var(--font-family); font-size: 12px; font-weight: 600;">
+              <option value="LKR" selected>LKR (Rs.)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="INR">INR (₹)</option>
+              <option value="AED">AED (د.إ)</option>
+            </select>
+          </div>
+
+          <!-- Role Selector -->
+          <div class="role-selector-container" style="display: flex; align-items: center; gap: 8px;">
+            <select id="role-select" class="role-select" style="padding: 6px 12px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-family: var(--font-family); font-size: 12px; font-weight: 600;">
+              <option value="Admin" selected>Admin Console</option>
+              <option value="Cashier">Cashier Mode</option>
+              <option value="Waiter">Server / Waiter</option>
+              <option value="Chef">Kitchen Chief</option>
+            </select>
+          </div>
+
+          <!-- Theme Toggle Button -->
+          <button class="btn-header-icon" id="btn-theme-toggle" title="Toggle Light/Dark Theme">
+            <i class="fa-solid fa-sun theme-toggle-icon"></i>
+          </button>
+
+          <!-- Quick Sync Catalog Button -->
+          <button class="btn-header-icon" id="btn-quick-sync" title="Sync Cloud Catalog Now">
+            <i class="fa-solid fa-arrows-rotate"></i>
+          </button>
+          
+          <!-- Profile Badge -->
+          <div class="user-profile-badge">
+            <div class="user-profile-avatar" id="avatar-initials">MK</div>
+            <div class="user-profile-info">
+              <p class="user-profile-name" id="profile-role-name">Administrator</p>
+              <p class="user-profile-role" id="profile-role-title">Terminal 1</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- TAB 1: DASHBOARD MODULE -->
+      <section class="tab-pane active show-tab" id="dashboard-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700; color: var(--text-primary);">SaaS Sales Dashboard</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Real-time checkout reports, business performance indicators, and low stock status</p>
+          </div>
+        </div>
+        
+        <!-- Metrics Grid -->
+        <div class="dashboard-metrics-grid">
+          <div class="metric-card">
+            <div class="metric-card-info">
+              <h4>Today's Sales</h4>
+              <p id="dash-metric-sales">$0.00</p>
+              <span class="metric-card-trend up"><i class="fa-solid fa-caret-up"></i> +14.2% versus yesterday</span>
+            </div>
+            <div class="metric-card-icon">
+              <i class="fa-solid fa-file-invoice-dollar"></i>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-info">
+              <h4>Invoices Created</h4>
+              <p id="dash-metric-invoices">0</p>
+              <span class="metric-card-trend up"><i class="fa-solid fa-caret-up"></i> Live tracking active</span>
+            </div>
+            <div class="metric-card-icon">
+              <i class="fa-solid fa-receipt"></i>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-info">
+              <h4>Till Register Cash</h4>
+              <p id="dash-metric-drawer">$0.00</p>
+              <span class="metric-card-trend" id="dash-metric-shift-status" style="color: var(--text-muted);">Shift Status: Inactive</span>
+            </div>
+            <div class="metric-card-icon">
+              <i class="fa-solid fa-vault"></i>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-info">
+              <h4>Low Stock Alerts</h4>
+              <p id="dash-metric-stock">0</p>
+              <span class="metric-card-trend down"><i class="fa-solid fa-triangle-exclamation"></i> Action required</span>
+            </div>
+            <div class="metric-card-icon">
+              <i class="fa-solid fa-boxes-stacked"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts and Lists Grid -->
+        <div class="dashboard-charts-grid">
+          <!-- Vector Sales Bar Chart -->
+          <div class="dashboard-card">
+            <div class="dashboard-card-header">
+              <h3><i class="fa-solid fa-chart-column"></i> Daily Sales Performance (7-Day Period)</h3>
+              <span style="font-size: 11px; color: var(--text-muted);">Values represent USD</span>
+            </div>
+            <div class="sales-bar-chart" id="sales-bar-chart-container">
+              <!-- Rendered dynamically via vector components -->
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 40%;" data-val="$420"></div>
+                <span class="bar-label">Mon</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 60%;" data-val="$680"></div>
+                <span class="bar-label">Tue</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 55%;" data-val="$590"></div>
+                <span class="bar-label">Wed</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 80%;" data-val="$940"></div>
+                <span class="bar-label">Thu</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 70%;" data-val="$810"></div>
+                <span class="bar-label">Fri</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 95%;" data-val="$1,240"></div>
+                <span class="bar-label">Sat</span>
+              </div>
+              <div class="bar-col">
+                <div class="bar-fill" style="height: 30%;" data-val="$350"></div>
+                <span class="bar-label">Sun</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top Products List -->
+          <div class="dashboard-card">
+            <div class="dashboard-card-header">
+              <h3><i class="fa-solid fa-crown"></i> High Demand Items</h3>
+            </div>
+            <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: space-around;" id="dash-top-products-list">
+              <!-- Dynamically populated top products -->
+              <p style="font-size: 12px; color: var(--text-muted); text-align: center;">No transactions executed yet today.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Status Table -->
+        <div class="table-module-container" style="flex-grow: 0; min-height: 200px;">
+          <div class="table-module-header">
+            <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary);"><i class="fa-solid fa-server"></i> System Integration & Database Audits</h3>
+          </div>
+          <table class="zoho-data-table">
+            <thead>
+              <tr>
+                <th>Data Asset Table</th>
+                <th>Source Integration</th>
+                <th>Local Count</th>
+                <th>Cloud Sync State</th>
+                <th>Response Latency</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Product Catalog (Items)</strong></td>
+                <td>Zoho Books API</td>
+                <td id="dash-status-item-count">0 Items</td>
+                <td><span class="status-pill success" id="dash-status-item-sync">Synced (Terminal Cache)</span></td>
+                <td>18ms (Cache)</td>
+              </tr>
+              <tr>
+                <td><strong>Customers & Contacts</strong></td>
+                <td>Zoho CRM CRM API</td>
+                <td id="dash-status-crm-count">0 Contacts</td>
+                <td><span class="status-pill success" id="dash-status-crm-sync">Terminal Cache</span></td>
+                <td>12ms</td>
+              </tr>
+              <tr>
+                <td><strong>Daily Till Shift Registers</strong></td>
+                <td>Catalyst Serverless NoSQL</td>
+                <td id="dash-status-shift-count">0 Shift Logs</td>
+                <td><span class="status-pill warning" id="dash-status-shift-sync">Local Only</span></td>
+                <td>14ms</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB 2: POS REGISTER MODULE -->
+      <section class="tab-pane" id="register-tab">
+        <!-- Industry Profile Swapping Banner -->
+        <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: 12px 18px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-cubes-stacked" style="color: var(--primary); font-size: 18px;"></i>
+            <div>
+              <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Active Template Core</span>
+              <h3 style="font-size: 14px; font-weight: 700;" id="current-industry-title">Retail Business Core</h3>
+            </div>
+          </div>
+          
+          <!-- Gorgeous 8 Industry Profiles Dropdown Selector -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Select Industry Model:</span>
+            <select id="industry-template-select" style="padding: 8px 12px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-family: var(--font-family); font-size: 12px; font-weight: 700; color: var(--primary); background: var(--primary-light); cursor: pointer;">
+              <option value="Retail">Retail Store Profile</option>
+              <option value="Restaurant">Fine Dine Restaurant (KDS + Floor)</option>
+              <option value="Pharmacy">Pharmacy & Healthcare</option>
+              <option value="Grocery">Grocery Supermarket (Weight Scale)</option>
+              <option value="Electronics">Consumer Electronics (Serial Tracking)</option>
+              <option value="Apparel">Apparel & Fashion (Size Matrix)</option>
+              <option value="Wholesale">Wholesale Distribution (Tier Rates)</option>
+              <option value="Services">Services & Wellness (Reservations)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="register-grid">
+          <!-- Catalog Grid Pane -->
+          <div class="catalog-pane">
+            
+            <!-- Dynamic Floor Map Node / Barcode Scan Simulator Wrapper -->
+            <!-- 1. Floor Map for Restaurant / Services -->
+            <div class="floor-map-container hidden" id="floor-map-container">
+              <div class="floor-map-header">
+                <h3><i class="fa-solid fa-map"></i> Floor & Table Grid Layout</h3>
+                <span class="floor-map-subtitle">Select a layout table to hold its cart</span>
+              </div>
+              <div class="tables-floor-grid" id="tables-floor-grid">
+                <!-- Dynamically populated tables -->
+              </div>
+            </div>
+
+            <!-- 2. Supermarket Weighing scale / Barcode Panel for Grocery / Retail -->
+            <div class="barcode-scan-input-box hidden" id="grocery-barcode-scanner-simulator">
+              <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary);"><i class="fa-solid fa-barcode"></i> Grocery Scan Core & Scale</span>
+                <span class="status-pill success" style="font-size: 9px; padding: 2px 8px;">Hardware Calibrated</span>
+              </div>
+              <div style="display: flex; gap: 10px; width: 100%;">
+                <input type="text" id="grocery-barcode-input" placeholder="Scan Barcode SKU (e.g. GROC-01, MILK-99)" style="flex-grow: 1; text-align: left; padding: 8px;">
+                <button class="btn-primary" id="btn-grocery-scan-sim" style="padding: 0 15px;"><i class="fa-solid fa-barcode"></i> Scan Item</button>
+                
+                <!-- Weight Scale simulation -->
+                <div style="display: flex; align-items: center; gap: 5px; background: #ffffff; border: 1px solid var(--border-color); padding: 0 10px; border-radius: var(--border-radius-md);">
+                  <i class="fa-solid fa-weight-hanging" style="color: var(--text-muted); font-size: 12px;"></i>
+                  <span style="font-size: 12px; font-weight: 700;" id="grocery-weight-display">1.00</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">kg</span>
+                  <button type="button" id="btn-grocery-weight-inc" style="border: none; background: none; font-size: 12px; cursor: pointer; color: var(--primary); padding-left: 5px;"><i class="fa-solid fa-plus-circle"></i></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pharmacy Specific Warning Panel -->
+            <div id="pharmacy-prescription-banner" class="hidden" style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: var(--border-radius-lg); padding: 12px 15px; display: flex; gap: 10px; align-items: center;">
+              <i class="fa-solid fa-circle-exclamation" style="color: var(--accent); font-size: 20px;"></i>
+              <div>
+                <h4 style="font-size: 12px; font-weight: 700; color: #92400e;">Rx Medication Enforcement Shield Active</h4>
+                <p style="font-size: 10px; color: #b45309; margin-top: 1px;">Selected pharmaceutical products labeled with [Rx REQUIRED] will trigger a mandatory pharmacist validation popup prior to billing checkout.</p>
+              </div>
+            </div>
+
+            <!-- Wholesale Tier Discount Banner -->
+            <div id="wholesale-tier-banner" class="hidden" style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: var(--border-radius-lg); padding: 12px 15px; display: flex; gap: 10px; align-items: center;">
+              <i class="fa-solid fa-circle-info" style="color: var(--secondary); font-size: 20px;"></i>
+              <div>
+                <h4 style="font-size: 12px; font-weight: 700; color: #0369a1;">Wholesale Bulk Pricing Rules Applied</h4>
+                <p style="font-size: 10px; color: #0284c7; margin-top: 1px;">Automatic tiered price thresholds active: Bulk orders exceeding 10 units trigger 10% cash discount. Exceeding 50 units trigger 20% flat discount!</p>
+              </div>
+            </div>
+
+            <!-- Quick Category Filters -->
+            <div class="category-filters" id="category-filters">
+              <button class="filter-btn active" data-category="all">All Items</button>
+              <!-- Populated dynamically based on industry profile -->
+            </div>
+
+            <!-- Items Cards Grid -->
+            <div class="items-grid" id="items-grid">
+              <div class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <p>Loading database catalog...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Checkout & Cart Pane -->
+          <div class="checkout-pane">
+            <div class="pane-header">
+              <h2 id="cart-header-title">Walk-In Register</h2>
+              <button class="btn-clear-cart" id="btn-clear-cart" title="Clear Checkout Cart">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </div>
+
+            <!-- Guest / Customer Details Block -->
+            <div class="customer-block">
+              <div class="input-group">
+                <label for="customer-name-input"><i class="fa-solid fa-user"></i> Customer</label>
+                <!-- Linked CRM autocomplete selector -->
+                <div style="display: flex; gap: 5px; width: 100%;">
+                  <select id="customer-name-input" style="flex-grow: 1; padding: 5px;">
+                    <option value="Walk-in Customer" selected>Walk-in Customer</option>
+                  </select>
+                  <button type="button" id="btn-add-quick-customer" style="border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); padding: 0 8px; background: #ffffff; cursor: pointer;" title="Create Quick Customer Profile"><i class="fa-solid fa-user-plus" style="color: var(--primary);"></i></button>
+                </div>
+              </div>
+              <div class="input-group">
+                <label for="customer-email-input"><i class="fa-solid fa-envelope"></i> Email</label>
+                <input type="email" id="customer-email-input" placeholder="customer@example.com" disabled>
+              </div>
+              <div class="input-group" id="table-number-group">
+                <label for="room-number-select"><i class="fa-solid fa-location-dot"></i> Table/Seat</label>
+                <select id="room-number-select">
+                  <option value="" selected>None / Carry-out</option>
+                  <option value="Table 01">Table 01 (2-Seater)</option>
+                  <option value="Table 02">Table 02 (4-Seater)</option>
+                  <option value="Table 03">Table 03 (2-Seater)</option>
+                  <option value="Table 04">Table 04 (6-Seater)</option>
+                  <option value="Table 05">Table 05 (4-Seater)</option>
+                  <option value="Table 06">Table 06 (8-Seater)</option>
+                  <option value="Table 07">Table 07 (2-Seater)</option>
+                  <option value="Table 08">Table 08 (4-Seater)</option>
+                </select>
+              </div>
+              <div class="input-group kitchen-notes-group" id="kitchen-notes-group">
+                <label for="kitchen-notes-input"><i class="fa-solid fa-kitchen-set"></i> Prep Notes</label>
+                <textarea id="kitchen-notes-input" placeholder="E.g., No onions, low sugar, gluten free..." rows="1"></textarea>
+              </div>
+            </div>
+
+            <!-- Cart Table Area -->
+            <div class="cart-container">
+              <div class="cart-items" id="cart-items-list">
+                <div class="empty-cart-state">
+                  <i class="fa-solid fa-cart-shopping"></i>
+                  <p>Register is currently empty</p>
+                  <span>Select products from the catalog to build cart</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Invoice Summary & Check out actions -->
+            <div class="order-summary-block">
+              <div class="summary-row">
+                <span>Cart Subtotal</span>
+                <span id="summary-subtotal">$0.00</span>
+              </div>
+              <div class="summary-row">
+                <span id="summary-tax-label">Calculated Tax (18%)</span>
+                <span id="summary-tax">$0.00</span>
+              </div>
+              <div class="summary-row total">
+                <span>Grand Total</span>
+                <span id="summary-total">$0.00</span>
+              </div>
+
+              <!-- Split Bill Option -->
+              <div class="split-bill-section">
+                <div class="split-header" style="display: flex; align-items: center; justify-content: space-between;">
+                  <div class="split-label-group" style="display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-scissors split-icon" style="color: var(--primary);"></i>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary);">Split Bill / Multi-Pay</span>
+                  </div>
+                  <label class="switch-glow">
+                    <input type="checkbox" id="split-bill-toggle">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+                
+                <div class="split-body hidden" id="split-body" style="margin-top: 8px; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                  <div class="split-adjuster-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="font-size: 11px; color: var(--text-muted);">Divide checkout into:</span>
+                    <div class="split-stepper" style="display: flex; align-items: center; gap: 8px;">
+                      <button type="button" class="stepper-btn" id="btn-split-dec" style="border: 1px solid var(--border-color); border-radius: 50%; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #ffffff;"><i class="fa-solid fa-minus" style="font-size: 9px;"></i></button>
+                      <span id="split-count-val" class="split-count-val" style="font-size: 12px; font-weight: 700; color: var(--text-primary);">2</span>
+                      <button type="button" class="stepper-btn" id="btn-split-inc" style="border: 1px solid var(--border-color); border-radius: 50%; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #ffffff;"><i class="fa-solid fa-plus" style="font-size: 9px;"></i></button>
+                    </div>
+                  </div>
+                  
+                  <div class="split-items-list" id="split-items-list" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Split rows generated dynamically -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Payment Mode Selector -->
+              <div class="payment-selection-box" id="single-payment-box" style="margin-top: 5px;">
+                <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 6px;">Active Payment Mode</label>
+                <div class="payment-options-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                  <button class="payment-mode-btn active" data-mode="Cash">
+                    <i class="fa-solid fa-money-bill-wave"></i>
+                    <span>Cash</span>
+                  </button>
+                  <button class="payment-mode-btn" data-mode="Card">
+                    <i class="fa-solid fa-credit-card"></i>
+                    <span>Card</span>
+                  </button>
+                  <button class="payment-mode-btn" data-mode="UPI">
+                    <i class="fa-solid fa-qrcode"></i>
+                    <span>UPI / Scan</span>
+                  </button>
+                  <button class="payment-mode-btn" data-mode="Room Charge" id="payment-btn-roomcharge">
+                    <i class="fa-solid fa-bed"></i>
+                    <span>Charge</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Checkout Submit Button -->
+              <button class="btn-checkout-submit" id="btn-submit-checkout" style="margin-top: 10px;">
+                <i class="fa-solid fa-check-double"></i>
+                <span id="btn-checkout-text">Complete Checkout Invoice</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: PRODUCTS & STOCK INVENTORY MODULE -->
+      <section class="tab-pane" id="products-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">Inventory Catalog Manager</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Perform database CRUD on stock items, adjust properties, and simulate barcodes</p>
+          </div>
+          <button class="btn-primary" id="btn-add-item-trigger"><i class="fa-solid fa-plus"></i> Add New Product</button>
+        </div>
+
+        <div class="table-module-container">
+          <div class="table-module-header">
+            <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary);">Total Loaded Products</h3>
+            <div class="table-module-actions">
+              <div class="search-table-input-group">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="product-table-search" placeholder="Search SKU or name...">
+              </div>
+            </div>
+          </div>
+          <table class="zoho-data-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product Name</th>
+                <th>Industry Model</th>
+                <th>Category</th>
+                <th>Stock Level</th>
+                <th>Unit Rate</th>
+                <th>Tax Scheme</th>
+                <th>Dynamic Properties</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="product-list-table-body">
+              <!-- Populated dynamically with complete CRUD item entries -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB 4: TRANSACTIONS & RETURNS MODULE -->
+      <section class="tab-pane" id="orders-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">Sales Transactions & Ledger</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">View completed orders, process customer returns, and verify background Zoho Books synchronizations</p>
+          </div>
+          <button class="btn-secondary" id="btn-refresh-orders"><i class="fa-solid fa-rotate-right"></i> Force Ledger Sync</button>
+        </div>
+
+        <div class="table-module-container">
+          <div class="table-module-header">
+            <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary);">Transactional History Journal</h3>
+            <div class="table-module-actions">
+              <div class="search-table-input-group">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="order-table-search" placeholder="Search Invoices...">
+              </div>
+            </div>
+          </div>
+          <table class="zoho-data-table" id="orders-history-table">
+            <thead>
+              <tr>
+                <th>Invoice No</th>
+                <th>Local Ref</th>
+                <th>Date & Time</th>
+                <th>Customer</th>
+                <th>Payment Mode</th>
+                <th>Subtotal</th>
+                <th>Tax</th>
+                <th>Total Bill</th>
+                <th>Zoho Books Sync</th>
+                <th style="text-align: right;">Receipt / Return Actions</th>
+              </tr>
+            </thead>
+            <tbody id="orders-table-body">
+              <!-- Dynamically populated transaction entries -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB 5: KITCHEN DISPLAY SYSTEM (KDS) -->
+      <section class="tab-pane" id="kds-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">Real-Time Kitchen Display System (KDS)</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Chef's dispatch console: live duration timers, prep status boards, and waiter indicators</p>
+          </div>
+          <div class="kds-filter-tabs" style="display: flex; gap: 8px;">
+            <button class="filter-btn active" data-kds-filter="all">All Queues</button>
+            <button class="filter-btn" data-kds-filter="pending">Pending Cards</button>
+            <button class="filter-btn" data-kds-filter="cooking">In Prep</button>
+            <button class="filter-btn" data-kds-filter="ready">Dispatched</button>
+          </div>
+        </div>
+        
+        <div class="kds-boards-row">
+          <!-- Pending Column -->
+          <div class="kds-board-column">
+            <div class="kds-board-header pending">
+              <span>PENDING INCOMING</span>
+              <span class="kds-board-count" id="kds-count-pending">0</span>
+            </div>
+            <div class="kds-board-cards-list" id="kds-container-pending">
+              <!-- Dynamically populated KOT tickets -->
+            </div>
+          </div>
+          
+          <!-- Cooking Column -->
+          <div class="kds-board-column">
+            <div class="kds-board-header cooking">
+              <span>PREPARATION IN PROGRESS</span>
+              <span class="kds-board-count" id="kds-count-cooking">0</span>
+            </div>
+            <div class="kds-board-cards-list" id="kds-container-cooking">
+              <!-- Cooking tickets with live timers -->
+            </div>
+          </div>
+          
+          <!-- Ready/Dispatched Column -->
+          <div class="kds-board-column">
+            <div class="kds-board-header ready">
+              <span>COMPLETED DISPATCHED</span>
+              <span class="kds-board-count" id="kds-count-ready">0</span>
+            </div>
+            <div class="kds-board-cards-list" id="kds-container-ready">
+              <!-- Ready/Dispatched tickets -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 6: CRM - CUSTOMERS & SUPPLIERS MODULE -->
+      <section class="tab-pane" id="crm-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">Customer & Vendor Directory (CRM)</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Track guest accounts, manage suppliers procurement, and maintain accurate ledger balances</p>
+          </div>
+          <button class="btn-primary" id="btn-add-contact-trigger"><i class="fa-solid fa-user-plus"></i> Add Profile</button>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+          <button class="filter-btn active" id="crm-view-customers" style="border-radius: var(--border-radius-md);">Customers & Guests</button>
+          <button class="filter-btn" id="crm-view-suppliers" style="border-radius: var(--border-radius-md);">Suppliers & Vendors</button>
+        </div>
+
+        <div class="table-module-container">
+          <div class="table-module-header">
+            <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="crm-table-title">Customer Contact Directory</h3>
+            <div class="table-module-actions">
+              <div class="search-table-input-group">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="crm-search" placeholder="Search profile...">
+              </div>
+            </div>
+          </div>
+          <table class="zoho-data-table">
+            <thead>
+              <tr>
+                <th>Unique ID</th>
+                <th>Name / Organization</th>
+                <th>Contact Details</th>
+                <th>Company Entity</th>
+                <th>Tax Registration No</th>
+                <th>Outstanding Balance</th>
+                <th>Ledger Activities</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="crm-table-body">
+              <!-- CRM directories dynamically loaded -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB 7: DAILY TILL SHIFT REGISTER MODULE -->
+      <section class="tab-pane" id="shifts-tab">
+        <div class="pane-header-large" style="margin-bottom: 20px;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">Terminal Shift Register & Cash Drawer Controls</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Audit cash opening floats, balance sales accounts, and log cashier shift records</p>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: flex-start;">
+          
+          <!-- Shift Controller Form Sheet -->
+          <div class="shift-register-box" id="shift-controller-box" style="margin: 0; width: 100%; max-width: 100%;">
+            <!-- Closed state layout -->
+            <div id="shift-closed-state">
+              <h2><i class="fa-solid fa-vault" style="color: var(--warning);"></i> Till Register Status: CLOSED</h2>
+              <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.4;">Before billing checkouts, you must initialize a cash opening float value. This tracks physical currency balances.</p>
+              
+              <form id="shift-open-form">
+                <div class="shift-form-row">
+                  <label for="shift-cashier-name">Assigned Cashier</label>
+                  <input type="text" id="shift-cashier-name" value="MK Administrator" required>
+                </div>
+                <div class="shift-form-row">
+                  <label for="shift-opening-float">Opening Cash Float ($)</label>
+                  <input type="number" id="shift-opening-float" value="150.00" step="0.01" min="0" required style="font-size: 16px; font-weight: 700; color: var(--primary);">
+                </div>
+                <div class="shift-form-row">
+                  <label for="shift-open-notes">Register Auditing Notes</label>
+                  <textarea id="shift-open-notes" placeholder="E.g., Opening morning float bills counted OK" rows="2"></textarea>
+                </div>
+                <button type="submit" class="btn-checkout-submit" style="background: var(--primary); width: 100%; margin-top: 10px;">
+                  <i class="fa-solid fa-key"></i> Initialize Opening Float & Open Till
+                </button>
+              </form>
+            </div>
+
+            <!-- Open state layout -->
+            <div id="shift-open-state" class="hidden">
+              <h2><i class="fa-solid fa-lock-open" style="color: var(--success);"></i> Till Register Status: OPEN</h2>
+              <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 15px;">Active Cashier: <span id="shift-active-cashier-display" style="font-weight: 700; color: var(--text-primary);">MK Administrator</span></p>
+              
+              <div class="shift-drawer-grid">
+                <div class="shift-drawer-stat-card">
+                  <span>Opening Float</span>
+                  <p id="shift-stat-opening">$150.00</p>
+                </div>
+                <div class="shift-drawer-stat-card">
+                  <span>Cash Sales Recorded</span>
+                  <p id="shift-stat-cash-sales">$0.00</p>
+                </div>
+                <div class="shift-drawer-stat-card">
+                  <span>Non-Cash Receipts</span>
+                  <p id="shift-stat-noncash-sales">$0.00</p>
+                </div>
+                <div class="shift-drawer-stat-card" style="background: var(--primary-light);">
+                  <span style="color: var(--primary);">Expected Drawer Cash</span>
+                  <p id="shift-stat-expected-cash" style="color: var(--primary); font-size: 20px;">$150.00</p>
+                </div>
+              </div>
+
+              <!-- Till Register Adjustments Row -->
+              <div class="shift-till-adjustments" style="display: flex; gap: 10px; margin-top: 15px; margin-bottom: 15px;">
+                <button type="button" id="btn-cash-in" class="btn-secondary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.08); color: rgb(16, 185, 129); border: 1px solid rgba(16, 185, 129, 0.2); cursor: pointer; transition: all 0.2s;">
+                  <i class="fa-solid fa-circle-arrow-down"></i> Cash In (Float)
+                </button>
+                <button type="button" id="btn-cash-out" class="btn-secondary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 700; background: rgba(239, 68, 68, 0.08); color: rgb(239, 68, 68); border: 1px solid rgba(239, 68, 68, 0.2); cursor: pointer; transition: all 0.2s;">
+                  <i class="fa-solid fa-circle-arrow-up"></i> Cash Out (Safe Drop)
+                </button>
+                <button type="button" id="btn-print-zreport" class="btn-secondary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 700; background: rgba(99, 102, 241, 0.08); color: rgb(99, 102, 241); border: 1px solid rgba(99, 102, 241, 0.2); cursor: pointer; transition: all 0.2s;">
+                  <i class="fa-solid fa-print"></i> Print Z-Report
+                </button>
+              </div>
+
+              <form id="shift-close-form" style="border-top: 1px dashed var(--border-color); padding-top: 15px; margin-top: 15px;">
+                <div class="shift-form-row">
+                  <label for="shift-closing-actual">Actual End-Shift Cash Count ($)</label>
+                  <input type="number" id="shift-closing-actual" placeholder="Enter physical cash in drawer" step="0.01" min="0" required style="font-size: 15px; font-weight: 700; border-color: var(--primary);">
+                </div>
+                <div class="shift-form-row">
+                  <label for="shift-close-notes">Register Closure Audits</label>
+                  <textarea id="shift-close-notes" placeholder="E.g., Shifts reconciled, cash matching expected..." rows="2"></textarea>
+                </div>
+                <button type="submit" class="btn-checkout-submit" style="background: var(--danger); width: 100%; margin-top: 10px; box-shadow: 0 4px 10px var(--danger-glow);">
+                  <i class="fa-solid fa-lock"></i> Perform Drawer Reconciliation & Close Shift
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Shift Auditing Ledger -->
+          <div class="table-module-container" style="margin: 0; min-height: 380px;">
+            <div class="table-module-header">
+              <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary);"><i class="fa-solid fa-book-open"></i> Till Audit Reconciliation Register</h3>
+            </div>
+            <table class="zoho-data-table">
+              <thead>
+                <tr>
+                  <th>Shift ID</th>
+                  <th>Cashier Profile</th>
+                  <th>Initialized Float</th>
+                  <th>Calculated expected</th>
+                  <th>Physical count</th>
+                  <th>Variance</th>
+                  <th>Audit Result</th>
+                </tr>
+              </thead>
+              <tbody id="shift-history-table-body">
+                <!-- Till reconciliations dynamically listed -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+
+
+      <!-- TAB 9: SETTINGS MODULE (DOUBLE SIDEBAR SUITE - 21 CATEGORIES) -->
+      <section class="tab-pane" id="settings-tab">
+        <div class="settings-outer-wrapper">
+          
+          <!-- Inner Sidebar: 21 Config categories -->
+          <div class="settings-sidebar">
+            <div class="settings-sidebar-header">Configuration Deck</div>
+            <div class="settings-nav-list" id="settings-nav-list">
+              <button class="settings-nav-btn active" data-settings-pane="sett-business"><i class="fa-solid fa-briefcase"></i> <span>Business Profile</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-company"><i class="fa-solid fa-building"></i> <span>Company Info</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-branding"><i class="fa-solid fa-palette"></i> <span>Branding & Logo</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-users"><i class="fa-solid fa-users"></i> <span>Users & Roles</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-permissions"><i class="fa-solid fa-user-lock"></i> <span>Permissions Matrix</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-taxes"><i class="fa-solid fa-percent"></i> <span>Taxes & VAT</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-payments"><i class="fa-solid fa-credit-card"></i> <span>Payment Gateways</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-receipt"><i class="fa-solid fa-file-invoice"></i> <span>Receipt Designer</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-invoice"><i class="fa-solid fa-file-lines"></i> <span>Invoice Prefix</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-inventory"><i class="fa-solid fa-boxes-stacked"></i> <span>Inventory Rules</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-pos"><i class="fa-solid fa-toggle-on"></i> <span>POS Preferences</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-barcode"><i class="fa-solid fa-barcode"></i> <span>Barcode Formats</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-notifications"><i class="fa-solid fa-bell"></i> <span>Notification Hub</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-email"><i class="fa-solid fa-envelope"></i> <span>Email SMTP Config</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-printer"><i class="fa-solid fa-print"></i> <span>Thermal Printers</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-integrations"><i class="fa-solid fa-circle-nodes"></i> <span>Integration Sync</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-security"><i class="fa-solid fa-lock"></i> <span>Security & Pins</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-audit"><i class="fa-solid fa-clipboard-list"></i> <span>Terminal Logs</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-api"><i class="fa-solid fa-code"></i> <span>API Webhooks</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-products-sync"><i class="fa-solid fa-cubes"></i> <span>Products Sync</span></button>
+              <button class="settings-nav-btn" data-settings-pane="sett-fields"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>Custom Fields</span></button>
+            </div>
+          </div>
+
+          <!-- Content Wrapper: 21 Config panes -->
+          <div class="settings-content-wrapper">
+            
+            <!-- Form Footer Save buttons are included in each pane -->
+            
+            <!-- Pane 1: Business Profile -->
+            <div class="settings-pane active" id="sett-business">
+              <div class="settings-section-header">
+                <h2>Business Profile</h2>
+                <p>Configure industry, base templates, and currency notations</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-business">
+                <div class="settings-form-row">
+                  <label>Corporate Name</label>
+                  <input type="text" name="bizName" value="Zoho Resort & POS Hub" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Operating Industry model</label>
+                  <select name="bizIndustry">
+                    <option value="Retail" selected>Retail General Catalog</option>
+                    <option value="Restaurant">Restaurant with Table Maps & KDS</option>
+                    <option value="Pharmacy">Pharmacy & Healthcare</option>
+                    <option value="Grocery">Grocery Scale & SKU Scan</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Base Currency Code</label>
+                  <input type="text" name="bizCurrency" value="Rs." required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Corporate Address</label>
+                  <input type="text" name="bizAddress" value="700 Silicon Boulevard, Tech Center 4, Chennai" required>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Profile</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 2: Company Info -->
+            <div class="settings-pane" id="sett-company">
+              <div class="settings-section-header">
+                <h2>Company Info</h2>
+                <p>Tax registrations, phone numbers, and contact entries</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-company">
+                <div class="settings-form-row">
+                  <label>Corporate Email ID</label>
+                  <input type="email" name="coEmail" value="billing@merchant.com" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Support Phone No</label>
+                  <input type="text" name="coPhone" value="+91-44-6700-1234" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Corporate Tax / VAT Registration ID</label>
+                  <input type="text" name="coTaxId" value="GSTIN33AACCS2012F1Z4" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Operating Country</label>
+                  <input type="text" name="coCountry" value="India" required>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Company Info</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 3: Branding & Custom Logo -->
+            <div class="settings-pane" id="sett-branding">
+              <div class="settings-section-header">
+                <h2>Branding & Custom Logo</h2>
+                <p>Customize checkout interface colors and printable receipt branding logos</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-branding">
+                <div class="settings-form-row">
+                  <label>Corporate Theme Tint</label>
+                  <input type="color" name="brandColor" value="#1976d2">
+                </div>
+                <div class="settings-form-row">
+                  <label>Logo Font Icon Class</label>
+                  <input type="text" name="brandLogoClass" value="fa-solid fa-hotel" placeholder="FontAwesome class e.g., fa-solid fa-store">
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Custom Header Greeting Title</label>
+                  <input type="text" name="brandHeaderTitle" value="ZOHO ENTERPRISE POS" required>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Apply Branding</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 4: Users & Roles -->
+            <div class="settings-pane" id="sett-users">
+              <div class="settings-section-header">
+                <h2>Users & Roles</h2>
+                <p>Invite staff members via email OTP verification and manage their roles</p>
+              </div>
+
+              <!-- Invite Form -->
+              <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--box-shadow-sm);">
+                <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);"><i class="fa-solid fa-paper-plane" style="color: var(--primary);"></i> Invite New User</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Full Name</label>
+                    <input type="text" id="invite-user-name" placeholder="Staff member name" style="padding: 9px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); font-size: 13px; font-family: var(--font-family);">
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Email Address</label>
+                    <input type="email" id="invite-user-email" placeholder="staff@example.com" style="padding: 9px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); font-size: 13px; font-family: var(--font-family);">
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Role</label>
+                    <select id="invite-user-role" style="padding: 9px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); font-size: 13px; font-family: var(--font-family);">
+                      <option value="Admin">Admin (Full Access)</option>
+                      <option value="Manager">Manager</option>
+                      <option value="Cashier">Cashier</option>
+                      <option value="Waiter">Waiter / Server</option>
+                      <option value="Chef">Kitchen Staff</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn-primary" id="btn-send-invite" style="height: 38px;"><i class="fa-solid fa-paper-plane"></i> Send Invite</button>
+                </div>
+                <!-- OTP Verify Section (shown after invite sent) -->
+                <div id="otp-verify-section" style="display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+                  <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">OTP sent! Enter the 6-digit code to verify:</p>
+                  <div style="display: flex; gap: 10px; align-items: end;">
+                    <input type="text" id="verify-otp-input" placeholder="Enter 6-digit OTP" maxlength="6" style="padding: 9px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); font-size: 14px; font-weight: 700; letter-spacing: 4px; width: 180px; font-family: var(--font-family);">
+                    <button type="button" class="btn-done" id="btn-verify-otp"><i class="fa-solid fa-shield-check"></i> Verify & Activate</button>
+                    <button type="button" class="btn-secondary" id="btn-resend-otp" style="font-size: 12px;">Resend OTP</button>
+                  </div>
+                  <p id="otp-status-msg" style="font-size: 12px; margin-top: 8px;"></p>
+                </div>
+              </div>
+
+              <!-- Users Table -->
+              <table class="zoho-data-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="sett-users-body">
+                  <tr><td colspan="6" style="text-align:center; color: var(--text-muted); padding: 20px;">No users invited yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pane 5: Permissions Matrix -->
+            <div class="settings-pane" id="sett-permissions">
+              <div class="settings-section-header">
+                <h2>Permissions & Roles Matrix</h2>
+                <p>Manage permission restrictions and Zoho application access per role</p>
+              </div>
+              <table class="zoho-data-table">
+                <thead>
+                  <tr>
+                    <th>Terminal Action</th>
+                    <th>Admin</th>
+                    <th>Manager</th>
+                    <th>Cashier</th>
+                    <th>Waiter</th>
+                    <th>Chef</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Execute Invoice Refunds</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Reconcile Daily Shift Till</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Adjust Inventory Stocks</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Manage Users & Roles</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                  <tr>
+                    <td><strong>View Reports & Analytics</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                  <tr>
+                    <td><strong>System Settings & Sync</strong></td>
+                    <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Enabled</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                    <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> Blocked</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style="margin-top: 24px;">
+                <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);"><i class="fa-solid fa-link" style="color: var(--primary);"></i> Zoho Application Access</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Admin role has full access to all connected Zoho applications. Other roles have restricted or no access.</p>
+                <table class="zoho-data-table">
+                  <thead>
+                    <tr>
+                      <th>Zoho Application</th>
+                      <th>Scope</th>
+                      <th>Admin</th>
+                      <th>Manager</th>
+                      <th>Cashier</th>
+                      <th>Waiter / Chef</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><i class="fa-solid fa-book" style="color: #e67e22; margin-right: 6px;"></i> <strong>Zoho Books</strong></td>
+                      <td><span class="badge badge-primary">fullaccess.all</span></td>
+                      <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Full Access</td>
+                      <td><i class="fa-solid fa-eye" style="color: #3498db;"></i> View Only</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                    </tr>
+                    <tr>
+                      <td><i class="fa-solid fa-file-invoice" style="color: #27ae60; margin-right: 6px;"></i> <strong>Zoho Invoice</strong></td>
+                      <td><span class="badge badge-secondary">invoice.all</span></td>
+                      <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Full Access</td>
+                      <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Create & View</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                    </tr>
+                    <tr>
+                      <td><i class="fa-solid fa-warehouse" style="color: #8e44ad; margin-right: 6px;"></i> <strong>Zoho Inventory</strong></td>
+                      <td><span class="badge badge-secondary">inventory.all</span></td>
+                      <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Full Access</td>
+                      <td><i class="fa-solid fa-eye" style="color: #3498db;"></i> View Only</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                    </tr>
+                    <tr>
+                      <td><i class="fa-solid fa-envelope" style="color: #e74c3c; margin-right: 6px;"></i> <strong>Zoho Mail</strong></td>
+                      <td><span class="badge badge-secondary">mail.all</span></td>
+                      <td><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Full Access</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                      <td><i class="fa-solid fa-circle-xmark" style="color: var(--danger);"></i> None</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="margin-top: 20px; padding: 14px; background: linear-gradient(135deg, #f0edff, #e8f4fd); border-radius: var(--border-radius-md); border: 1px solid rgba(108,92,231,0.15);">
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">
+                  <i class="fa-solid fa-info-circle" style="color: var(--primary);"></i>
+                  <strong>Role Hierarchy:</strong> Admin &gt; Manager &gt; Cashier &gt; Waiter/Chef. Only Admin can manage users, roles, and access connected Zoho applications.
+                  Manager can view reports and process refunds. Cashier can process sales and reconcile tills. Waiter/Chef can only operate their designated terminals.
+                </p>
+              </div>
+            </div>
+
+            <!-- Pane 6: Taxes & VAT -->
+            <div class="settings-pane" id="sett-taxes">
+              <div class="settings-section-header">
+                <h2>Taxes & Compliance</h2>
+                <p>Setup tax rates reactive to selected industry profiles</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-taxes">
+                <div class="settings-form-row">
+                  <label>Tax Bracket Label</label>
+                  <input type="text" name="taxLabel" value="Calculated Tax (GST 18%)" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Tax Flat Rate Percentage (%)</label>
+                  <input type="number" name="taxRate" value="18.0" step="0.1" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Tax Model Structure</label>
+                  <select name="taxModel" id="sett-tax-model" class="role-select" style="width: 100%; padding: 8px 12px; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-family: var(--font-family); font-size: 13px; font-weight: 600;">
+                    <option value="US">US (Standard Exclusive Sales Tax)</option>
+                    <option value="VAT">VAT (Inclusive Tax)</option>
+                    <option value="GST">GST (CGST/SGST Splits Exclusive)</option>
+                  </select>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label><input type="checkbox" name="taxCompound"> Apply compounded luxury tax (Surcharge flat +5%)</label>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Tax Rules</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 7: Payment Gateways -->
+            <div class="settings-pane" id="sett-payments">
+              <div class="settings-section-header">
+                <h2>Payment Methods</h2>
+                <p>Activate available checking channels for checkout register</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-payments">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="payCash" checked> Cash Terminal Drawer Active</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="payCard" checked> Credit/Debit Cards Terminal Active</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="payUPI" checked> Instant UPI QR Code Engine Active</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="payCharge" checked> Guest Room/Folio Billing Ledger Active</label>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Update Gateways</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 8: Receipt Designer -->
+            <div class="settings-pane" id="sett-receipt">
+              <div class="settings-section-header">
+                <h2>Thermal Receipt Customizer</h2>
+                <p>Update header greetings, printing messages, and footer barcodes</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-receipt">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Receipt Welcoming Header</label>
+                  <input type="text" name="recHeader" value="ZOHO POS & RESORT CO" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Receipt Telephone</label>
+                  <input type="text" name="recTel" value="Tel: +91-44-6700-POS" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Bottom Barcode Format</label>
+                  <select name="recBarcode">
+                    <option value="code39">Standard Code39 (|||| | | ||||)</option>
+                    <option value="code128">Compressed Code128</option>
+                  </select>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Receipt Footer Greeting Message</label>
+                  <input type="text" name="recFooter" value="Thank You for Dining with us! Synced with Zoho Books." required>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Receipt template</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 9: Invoice Prefix -->
+            <div class="settings-pane" id="sett-invoice">
+              <div class="settings-section-header">
+                <h2>Invoice Settings</h2>
+                <p>Configure automated invoice numbering rules and sequential patterns</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-invoice">
+                <div class="settings-form-row">
+                  <label>Billing Invoice Prefix</label>
+                  <input type="text" name="invPrefix" value="ZINV-" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Starting Invoice Serial Sequence No</label>
+                  <input type="number" name="invNextNo" value="1001" required>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Invoice Rules</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 10: Inventory Rules -->
+            <div class="settings-pane" id="sett-inventory">
+              <div class="settings-section-header">
+                <h2>Inventory stock policies</h2>
+                <p>Manage low stock thresholds and block sales of out-of-stock items</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-inventory">
+                <div class="settings-form-row">
+                  <label>Low Stock Warning Level Threshold</label>
+                  <input type="number" name="invLowStock" value="5" min="1" required>
+                </div>
+                <div class="settings-form-row" style="justify-content: center; height: 100%;">
+                  <label style="display: flex; align-items: center; gap: 8px; margin-top: 25px;">
+                    <input type="checkbox" name="invBlockOos" checked> Block sales when item stock is zero
+                  </label>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Inventory Policy</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 11: POS Preferences -->
+            <div class="settings-pane" id="sett-pos">
+              <div class="settings-section-header">
+                <h2>POS System Preferences</h2>
+                <p>Adjust system defaults, print dialog triggers, and sound effects</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-pos">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="posAutoPrint" checked> Instantly open browser Print Dialog upon checkout approval</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="posBeep" checked> Play digital beep audio on catalog selections & scanner events</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="posAutoShift" checked> Require cash opening float whenever a new day begins</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="posKotEnabled"> Enable Kitchen Order Tickets (KOT) — generates KDS tickets on checkout</label>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Preferences</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 12: Barcode Settings -->
+            <div class="settings-pane" id="sett-barcode">
+              <div class="settings-section-header">
+                <h2>Barcode Formats</h2>
+                <p>Set standard formats for weight scale integration and product barcodes</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-barcode">
+                <div class="settings-form-row">
+                  <label>Scale Barcode Prefix</label>
+                  <input type="text" name="barScalePrefix" value="21" required placeholder="E.g., 21, 29">
+                </div>
+                <div class="settings-form-row">
+                  <label>Standard SKU Encoding Format</label>
+                  <select name="barEncoding">
+                    <option value="UPC-A">UPC-A (12-Digit Retail)</option>
+                    <option value="EAN-13">EAN-13 (13-Digit International)</option>
+                  </select>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Apply Barcode Formats</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 13: Notification Hub -->
+            <div class="settings-pane" id="sett-notifications">
+              <div class="settings-section-header">
+                <h2>Notification Hub</h2>
+                <p>Adjust system sound cues, push alerts, and low stock warnings</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-notifications">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="alertLowStock" checked> Display in-app banner for low stock products</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="alertRefund" checked> Request admin authorization warning during refunds</label>
+                  <label style="display: block; margin-bottom: 10px;"><input type="checkbox" name="alertCloudError" checked> Show full notification panel if server connection fails</label>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Update Alerts</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 14: Email SMTP Config -->
+            <div class="settings-pane" id="sett-email">
+              <div class="settings-section-header">
+                <h2>Email SMTP Config</h2>
+                <p>Setup parameters to send invoices, bills, and receipts directly to guests' emails</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-email">
+                <div class="settings-form-row">
+                  <label>SMTP Mail Server Host</label>
+                  <input type="text" name="emailHost" value="smtp.zoho.com" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>SMTP Port</label>
+                  <input type="number" name="emailPort" value="465" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Sender Account Username</label>
+                  <input type="text" name="emailUser" value="pos-alerts@zohoresorts.in" required>
+                </div>
+                <div class="settings-form-row">
+                  <label>Sender Connection Security</label>
+                  <select name="emailSecurity">
+                    <option value="SSL" selected>SSL / TLS (Secure)</option>
+                    <option value="STARTTLS">STARTTLS</option>
+                  </select>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Apply Mail Server</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 15: Thermal Printer Config -->
+            <div class="settings-pane" id="sett-printer">
+              <div class="settings-section-header">
+                <h2>Thermal Printers Config</h2>
+                <p>Setup page width and specific printer channels for POS</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-printer">
+                <div class="settings-form-row">
+                  <label>Receipt Print Width</label>
+                  <select name="printWidth">
+                    <option value="80mm" selected>Standard 80mm roll width (Recommended)</option>
+                    <option value="58mm">Compact 58mm card roll width</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Target Thermal Printer Protocol</label>
+                  <select name="printProtocol">
+                    <option value="browser">Direct Browser Print (No drivers needed)</option>
+                    <option value="raw-tcp">Raw TCP / ESC-POS Network IP</option>
+                  </select>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Thermal Printer Network IP address</label>
+                  <input type="text" name="printIp" value="192.168.1.180" placeholder="192.168.x.x">
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Connect Printer</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 16: Cloud Backup & Restore -->
+            <div class="settings-pane" id="sett-backup">
+              <div class="settings-section-header">
+                <h2>Local database Backup & Restore</h2>
+                <p>Preserve your local sandbox data as JSON arrays or load previous snapshots</p>
+              </div>
+              <div style="display: flex; gap: 15px; background: var(--bg-input); padding: 15px; border-radius: var(--border-radius-lg); align-items: center;">
+                <i class="fa-solid fa-floppy-disk" style="color: var(--primary); font-size: 24px;"></i>
+                <div>
+                  <h4 style="font-size: 13px; font-weight: 700;">Local database Snapshot</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin-top: 1px;">Clicking export compiles all custom items, past ledger records, CRM profiles, and shift reports into a portable file.</p>
+                </div>
+              </div>
+              <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button type="button" class="btn-primary" id="btn-settings-backup-export"><i class="fa-solid fa-file-export"></i> Export Sandbox database (JSON)</button>
+                <button type="button" class="btn-secondary" id="btn-settings-backup-import"><i class="fa-solid fa-file-import"></i> Import Snapshot File</button>
+              </div>
+            </div>
+
+            <!-- Pane 17: Integration Sync Logs -->
+            <div class="settings-pane" id="sett-integrations">
+              <div class="settings-section-header">
+                <h2>Integration Sync & SaaS Credentials</h2>
+                <p>Configure SaaS Master developer Client App details and connect your Zoho Books account</p>
+              </div>
+
+              <!-- ===== Hero Connection Card: single one-click Connect experience ===== -->
+              <div class="zb-connect-hero" id="zb-connect-hero">
+                <div class="zb-connect-hero-glow"></div>
+
+                <div class="zb-connect-hero-inner">
+                  <div class="zb-brand-badge">
+                    <img src="https://www.zohowebstatic.com/sites/zweb/images/books/zoho-books-logo.svg" alt="Zoho Books" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <span class="zb-brand-fallback" style="display:none;"><i class="fa-solid fa-book"></i></span>
+                  </div>
+
+                  <!-- Disconnected state -->
+                  <div id="zb-state-disconnected">
+                    <h3 class="zb-connect-title">Connect your Zoho Books account</h3>
+                    <p class="zb-connect-sub">One click authorizes this POS with your Zoho Books. We'll then let you pick which organization to sync sales, invoices &amp; payments into. No API keys, no setup.</p>
+
+                    <div class="zb-status-chip disconnected" id="oauth-status-banner">
+                      <span class="zb-status-dot"></span>
+                      <span id="oauth-status-text">Not connected</span>
+                    </div>
+
+                    <button type="button" class="zb-connect-btn" id="btn-zoho-seamless-login">
+                      <i class="fa-solid fa-plug-circle-bolt"></i>
+                      <span>Connect Zoho Books</span>
+                    </button>
+
+                    <div class="zb-trust-row">
+                      <span><i class="fa-solid fa-shield-halved"></i> OAuth 2.0 secured</span>
+                      <span><i class="fa-solid fa-lock"></i> Tokens never leave your tenant</span>
+                    </div>
+                  </div>
+
+                  <!-- Connected state -->
+                  <div id="zb-state-connected" class="hidden">
+                    <h3 class="zb-connect-title"><i class="fa-solid fa-circle-check" style="color:#22c55e;"></i> Zoho Books connected</h3>
+                    <div class="zb-connected-org" id="zb-connected-org">
+                      <div class="zb-connected-org-icon"><i class="fa-solid fa-building"></i></div>
+                      <div class="zb-connected-org-meta">
+                        <span class="zb-org-name" id="zb-connected-org-name">Organization</span>
+                        <span class="zb-org-email" id="zb-connected-org-email">merchant@zoho.books</span>
+                      </div>
+                      <span class="zb-status-chip connected" style="margin-left:auto;"><span class="zb-status-dot"></span> Live</span>
+                    </div>
+
+                    <div class="sync-metrics-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0;">
+                      <div class="zb-metric-box">
+                        <h4 id="stat-total-items">0</h4>
+                        <p>Catalog Items</p>
+                      </div>
+                      <div class="zb-metric-box">
+                        <h4 id="stat-last-sync" style="font-size:11px;">Never</h4>
+                        <p>Last Synced</p>
+                      </div>
+                      <div class="zb-metric-box">
+                        <h4 style="color:#22c55e;">100%</h4>
+                        <p>Handshake</p>
+                      </div>
+                    </div>
+
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                      <button type="button" class="zb-secondary-btn" id="btn-full-sync-action">
+                        <i class="fa-solid fa-arrows-rotate"></i> Pull Zoho Catalog
+                      </button>
+                      <button type="button" class="zb-secondary-btn" id="btn-diagnose-connection" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none;">
+                        <i class="fa-solid fa-stethoscope"></i> Diagnose Connection
+                      </button>
+                      <button type="button" class="zb-secondary-btn" id="btn-zoho-switch-org">
+                        <i class="fa-solid fa-repeat"></i> Switch Organization
+                      </button>
+                      <button type="button" class="zb-danger-btn" id="btn-oauth-disconnect">
+                        <i class="fa-solid fa-circle-xmark"></i> Disconnect
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <h3 style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;"><i class="fa-solid fa-clock-rotate-left"></i> Background Sync Activity Log</h3>
+              <table class="zoho-data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Integration Channel</th>
+                    <th>Action</th>
+                    <th>Response Code</th>
+                    <th>Sync Status</th>
+                  </tr>
+                </thead>
+                <tbody id="settings-sync-logs-body">
+                  <tr><td colspan="5" style="text-align:center; color: var(--text-muted); padding: 20px;">No sync activity yet. Connect Zoho Books to start syncing.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pane 18: Security & SSL -->
+            <div class="settings-pane" id="sett-security">
+              <div class="settings-section-header">
+                <h2>Security & Staff Pins</h2>
+                <p>Enforce strict check and login barriers for managers and waiters</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-security">
+                <div class="settings-form-row">
+                  <label>Staff login barrier pin code</label>
+                  <input type="password" name="staffPin" value="1234" placeholder="4-Digit Numerical Pin" maxlength="4" style="letter-spacing: 4px; font-size: 16px; font-weight: 700;">
+                </div>
+                <div class="settings-form-row">
+                  <label>Lock screen Timeout Delay</label>
+                  <select name="lockTimeout">
+                    <option value="never" selected>Never locks</option>
+                    <option value="5">Lock after 5 Minutes Idle</option>
+                    <option value="15">Lock after 15 Minutes Idle</option>
+                  </select>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Apply Security</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 19: Terminal Audit Logs -->
+            <div class="settings-pane" id="sett-audit">
+              <div class="settings-section-header">
+                <h2>Staff Activity Audit Logs</h2>
+                <p>Complete transaction trace: cash openings, item creations, and refunds</p>
+              </div>
+              <table class="zoho-data-table">
+                <thead>
+                  <tr>
+                    <th>Log No</th>
+                    <th>Time</th>
+                    <th>Staff User</th>
+                    <th>Module</th>
+                    <th>Executed Action Activity</th>
+                  </tr>
+                </thead>
+                <tbody id="settings-audit-logs-body">
+                  <!-- Audit logs dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pane 20: API Webhooks -->
+            <div class="settings-pane" id="sett-api">
+              <div class="settings-section-header">
+                <h2>Developer Webhooks & API</h2>
+                <p>Construct customized event handlers to react upon checkout invoice successes</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-api">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Event Webhook Endpoint URL</label>
+                  <input type="url" name="webhookUrl" value="https://webhooks.site/mock-pos-zoho-success" placeholder="https://api.company.com/webhook-receiver">
+                </div>
+                <div class="settings-form-row">
+                  <label>Webhook Event Hook</label>
+                  <select name="webhookEvent">
+                    <option value="invoice.created">Invoice checkout completed</option>
+                    <option value="refund.processed">Refund / Returns executed</option>
+                    <option value="shift.closed">Shift register reconciled</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Secure Handshake Secret Token</label>
+                  <input type="text" name="webhookSecret" value="whsec_ZOHOPOSKEY77182" readonly>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Setup Webhook</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 22: Products Sync (Advanced Zoho Books Sync Configuration) -->
+            <div class="settings-pane" id="sett-products-sync">
+              <div class="settings-section-header">
+                <h2>Zoho Products Sync Engine</h2>
+                <p>Configure advanced synchronization rules, field mappings, and conflict resolution for Zoho Books product catalog</p>
+              </div>
+              <form class="settings-grid-form" id="form-sett-products-sync">
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <input type="checkbox" name="productsAutoSync" checked> Enable automatic product synchronization
+                  </label>
+                  <p style="font-size: 10px; color: var(--text-muted); margin-left: 24px;">When enabled, product catalog changes are automatically synced with Zoho Books based on the schedule below.</p>
+                </div>
+                <div class="settings-form-row">
+                  <label>Sync Direction</label>
+                  <select name="productsSyncDirection">
+                    <option value="zoho_to_pos">Zoho Books → POS (Pull only)</option>
+                    <option value="pos_to_zoho">POS → Zoho Books (Push only)</option>
+                    <option value="bidirectional" selected>Bidirectional (Two-way sync)</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Conflict Resolution</label>
+                  <select name="productsConflictStrategy">
+                    <option value="zoho_wins" selected>Zoho Books version wins</option>
+                    <option value="pos_wins">POS local version wins</option>
+                    <option value="newest_wins">Most recent timestamp wins</option>
+                    <option value="manual">Manual review required</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Sync Schedule</label>
+                  <select name="productsSyncSchedule">
+                    <option value="realtime">Real-time (on every change)</option>
+                    <option value="every_15m">Every 15 minutes</option>
+                    <option value="every_1h" selected>Every 1 hour</option>
+                    <option value="every_6h">Every 6 hours</option>
+                    <option value="daily">Daily at midnight</option>
+                    <option value="manual">Manual only</option>
+                  </select>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2; border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 4px;">
+                  <h4 style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Field Mapping Configuration</h4>
+                </div>
+                <div class="settings-form-row">
+                  <label>Price List Override</label>
+                  <select name="productsPriceList">
+                    <option value="standard" selected>Standard (Default sales price)</option>
+                    <option value="wholesale">Wholesale price list</option>
+                    <option value="preferred">Preferred customer pricing</option>
+                    <option value="no_override">No override (use item rate)</option>
+                  </select>
+                </div>
+                <div class="settings-form-row">
+                  <label>Tax Mapping Mode</label>
+                  <select name="productsTaxMapping">
+                    <option value="exact_match" selected>Exact tax name match required</option>
+                    <option value="nearest_rate">Nearest tax rate % match</option>
+                    <option value="default_only">Use POS default tax only</option>
+                    <option value="skip_tax">Skip tax mapping (no sync)</option>
+                  </select>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Field Sync Rules (comma-separated field names to include)</label>
+                  <input type="text" name="productsFieldRules" value="name,rate,sku,tax_percentage,stock,category" placeholder="e.g. name,rate,sku,tax_percentage,stock,category">
+                  <p style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Only these fields will be synced. Leave empty to sync all available fields.</p>
+                </div>
+                <div class="settings-form-row" style="grid-column: span 2;">
+                  <label>Default Category Mapping (Zoho category → POS category)</label>
+                  <input type="text" name="productsCategoryMapping" value='{"Sales":"General","Services":"Services","Inventory":"General"}' placeholder='JSON mapping object'>
+                  <p style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">JSON object mapping Zoho Books categories to POS industry categories.</p>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 15px;">
+                  <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Sync Configuration</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pane 21: Custom Fields Designer -->
+            <div class="settings-pane" id="sett-fields">
+              <div class="settings-section-header">
+                <h2>Custom Metadata Fields</h2>
+                <p>Define bespoke attributes reactive to items and invoices</p>
+              </div>
+              <table class="zoho-data-table">
+                <thead>
+                  <tr>
+                    <th>Metadata ID</th>
+                    <th>Target Scope</th>
+                    <th>Label</th>
+                    <th>Type Schema</th>
+                    <th>Pre-configured industry mapping</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>FIELD-01</td>
+                    <td>Items Table</td>
+                    <td>Dosage / Dose (mg)</td>
+                    <td>String Text</td>
+                    <td><span class="status-pill info">Pharmacy Profiles</span></td>
+                  </tr>
+                  <tr>
+                    <td>FIELD-02</td>
+                    <td>Items Table</td>
+                    <td>Warranty duration (months)</td>
+                    <td>Numerical</td>
+                    <td><span class="status-pill info">Electronics Profiles</span></td>
+                  </tr>
+                  <tr>
+                    <td>FIELD-03</td>
+                    <td>Items Table</td>
+                    <td>Size (S, M, L, XL)</td>
+                    <td>Dropdown select</td>
+                    <td><span class="status-pill info">Apparel Profiles</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- Dual Thermal Print Modal -->
+  <div class="modal-backdrop" id="receipt-modal">
+    <div class="modal-card wide">
+      <div class="modal-header">
+        <h3 id="receipt-modal-title"><i class="fa-solid fa-circle-check" style="color: var(--success);"></i> Order approved & Books Synced</h3>
+        <button class="modal-close" id="btn-close-modal">&times;</button>
+      </div>
+      
+      <!-- Tab selectors inside receipt popup -->
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" id="tab-preview-bill">
+          <i class="fa-solid fa-file-invoice-dollar"></i> Customer Thermal Receipt
+        </button>
+        <button class="modal-tab-btn" id="tab-preview-kot">
+          <i class="fa-solid fa-kitchen-set"></i> Kitchen Order Ticket (KOT)
+        </button>
+      </div>
+
+      <div class="modal-body scrollable-modal-body">
+        
+        <!-- Printable receipt slip -->
+        <div class="thermal-receipt" id="receipt-print-area">
+          <div class="receipt-header">
+            <i class="fa-solid fa-hotel receipt-logo" id="receipt-header-logo-icon" style="font-size: 24px; color: #000000; margin-bottom: 4px;"></i>
+            <h2 id="print-receipt-biz-name">ZOHO POS & RESORT CO</h2>
+            <p id="print-receipt-biz-address">700 Silicon Boulevard, Tech Center 4, Chennai</p>
+            <p id="print-receipt-biz-tel">Tel: +91-44-6700-POS</p>
+            <div class="receipt-divider"></div>
+          </div>
+          <div class="receipt-meta">
+            <p><strong>Invoice No:</strong> <span id="receipt-invoice-num">ZINV-1001</span></p>
+            <p><strong>Local Ref:</strong> <span id="receipt-order-id">LOC-918239</span></p>
+            <p><strong>Books ID:</strong> <span id="receipt-books-id">MOCK-BO-10294</span></p>
+            <p><strong>Date & Time:</strong> <span id="receipt-date">--</span></p>
+            <p><strong>Customer Name:</strong> <span id="receipt-guest-name">Walk-in Customer</span></p>
+            <p><strong>Payment Mode:</strong> <span id="receipt-payment-mode">Cash</span></p>
+            <div class="receipt-divider"></div>
+          </div>
+          <table class="receipt-items-list-table">
+            <thead>
+              <tr style="border-bottom: 1px dashed #000000;">
+                <th style="text-align: left;">Item Name</th>
+                <th style="text-align: center; width: 40px;">Qty</th>
+                <th style="text-align: right; width: 80px;">Rate</th>
+                <th style="text-align: right; width: 80px;">Total</th>
+              </tr>
+            </thead>
+            <tbody id="receipt-items-tbody">
+              <!-- Dynamically populated customer invoice items lines -->
+            </tbody>
+          </table>
+          <div class="receipt-divider" style="margin-top: 10px;"></div>
+          <table class="receipt-totals-table">
+            <tbody>
+              <tr>
+                <td>Subtotal:</td>
+                <td style="text-align: right;" id="receipt-subtotal">$0.00</td>
+              </tr>
+              <tr>
+                <td id="receipt-tax-label-print">Calculated Tax:</td>
+                <td style="text-align: right;" id="receipt-tax">$0.00</td>
+              </tr>
+              <tr class="bold">
+                <td>Grand Total:</td>
+                <td style="text-align: right; font-size: 13px;" id="receipt-total">$0.00</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="receipt-footer-msg">
+            <div class="receipt-divider"></div>
+            <p id="print-receipt-footer-text">Thank You for Dining with us! Synced with Zoho Books.</p>
+            <p>Powered by Cloud POS Suite & Catalyst NoSQL</p>
+            <div class="barcode" style="letter-spacing: 3px; font-size: 10px; margin-top: 10px; text-align: center;" id="print-receipt-barcode-display">|||| | | |||| || || | |||</div>
+          </div>
+        </div>
+
+        <!-- Kitchen Order Ticket KOT slip -->
+        <div class="thermal-receipt hidden" id="kot-print-area">
+          <div class="receipt-header">
+            <h2>KITCHEN ORDER DISPATCH SLIP</h2>
+            <div class="receipt-divider"></div>
+          </div>
+          <div class="receipt-meta">
+            <p><strong>KOT Ticket No:</strong> <span id="kot-ticket-id">KOT-101</span></p>
+            <p><strong>Assigned Room / Table:</strong> <span id="kot-room-number">--</span></p>
+            <p><strong>Date & Time:</strong> <span id="kot-date">--</span></p>
+            <p><strong>Guest Name:</strong> <span id="kot-guest-name">Walk-in Guest</span></p>
+            <div class="receipt-divider"></div>
+          </div>
+          <table class="receipt-items-list-table">
+            <thead>
+              <tr style="border-bottom: 1px dashed #000000;">
+                <th style="text-align: left;">Item Prep Name</th>
+                <th style="text-align: right; width: 60px;">Quantity</th>
+              </tr>
+            </thead>
+            <tbody id="kot-items-list-tbody">
+              <!-- Dynamically populated kitchen items only -->
+            </tbody>
+          </table>
+          <div class="receipt-divider" style="margin-top: 10px;"></div>
+          <div class="kot-notes-section" id="print-kot-notes-section" style="font-size: 11px; line-height: 1.4;">
+            <p><strong>Chef's Prep Instructions:</strong></p>
+            <p class="kot-notes-text" id="kot-notes-text" style="background: #f1f5f9; padding: 5px; margin-top: 3px;">--</p>
+          </div>
+          <div class="receipt-footer-msg">
+            <div class="receipt-divider"></div>
+            <p>Terminal 1 Kitchen Queue Dispatch</p>
+          </div>
+        </div>
+
+        <!-- Z-Report Shift Audit Slip -->
+        <div class="thermal-receipt hidden" id="zreport-print-area">
+          <div class="receipt-header">
+            <i class="fa-solid fa-vault receipt-logo" style="font-size: 24px; color: #000000; margin-bottom: 4px;"></i>
+            <h2>DAILY SHIFT Z-REPORT</h2>
+            <p>DRAWER RECONCILIATION AUDIT</p>
+            <div class="receipt-divider"></div>
+          </div>
+          <div class="receipt-meta">
+            <p><strong>Shift ID:</strong> <span id="zreport-shift-id">--</span></p>
+            <p><strong>Cashier:</strong> <span id="zreport-cashier-name">--</span></p>
+            <p><strong>Open Time:</strong> <span id="zreport-open-time">--</span></p>
+            <p><strong>Close Time:</strong> <span id="zreport-close-time">--</span></p>
+            <p><strong>Status:</strong> <span id="zreport-status">--</span></p>
+            <div class="receipt-divider"></div>
+          </div>
+          <table class="receipt-totals-table" style="width:100%;">
+            <tbody>
+              <tr>
+                <td>Opening Float:</td>
+                <td style="text-align: right;" id="zreport-opening-float">$0.00</td>
+              </tr>
+              <tr>
+                <td>Cash Sales:</td>
+                <td style="text-align: right;" id="zreport-cash-sales">$0.00</td>
+              </tr>
+              <tr>
+                <td>Cash In Drops:</td>
+                <td style="text-align: right;" id="zreport-cash-in">$0.00</td>
+              </tr>
+              <tr>
+                <td>Cash Out Drops:</td>
+                <td style="text-align: right;" id="zreport-cash-out">$0.00</td>
+              </tr>
+              <tr class="bold" style="border-top: 1px dashed #000000; border-bottom: 1px dashed #000000;">
+                <td>Expected Drawer Cash:</td>
+                <td style="text-align: right;" id="zreport-expected-cash">$0.00</td>
+              </tr>
+              <tr>
+                <td>Actual End Cash:</td>
+                <td style="text-align: right;" id="zreport-actual-cash">$0.00</td>
+              </tr>
+              <tr class="bold" style="border-top: 1.5px solid #000000;">
+                <td>Difference:</td>
+                <td style="text-align: right;" id="zreport-difference">$0.00</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="receipt-footer-msg">
+            <div class="receipt-divider"></div>
+            <p>Shift Audit Log Synced on Cloud Sandbox</p>
+            <p>Powered by Cloud POS Suite & Catalyst NoSQL</p>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="btn-print-receipt-trigger"><i class="fa-solid fa-print"></i> Print Receipt</button>
+        <button class="btn-secondary" id="btn-print-kot-trigger"><i class="fa-solid fa-kitchen-set"></i> Print KOT</button>
+        <button class="btn-done" id="btn-done-modal">Reopen Register</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Modal for complete Catalog CRUD -->
+  <div class="modal-backdrop" id="product-editor-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="product-modal-title">Add New Product</h3>
+        <button class="modal-close" id="btn-close-product-modal">&times;</button>
+      </div>
+      <form id="product-editor-form">
+        <input type="hidden" id="prod-edit-rowid">
+        <div class="modal-body scrollable-modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="settings-form-row">
+            <label>Product Name</label>
+            <input type="text" id="prod-name" required placeholder="E.g. Grilled Chicken, Ibuprofen 400">
+          </div>
+          <div class="settings-form-row">
+            <label>SKU / Barcode ID</label>
+            <input type="text" id="prod-sku" required placeholder="E.g. RT-1001, RX-M01">
+          </div>
+          <div class="settings-form-row">
+            <label>Target Industry Profile</label>
+            <select id="prod-industry">
+              <option value="Retail">Retail Store</option>
+              <option value="Restaurant">Restaurant</option>
+              <option value="Pharmacy">Pharmacy</option>
+              <option value="Grocery">Grocery</option>
+              <option value="Electronics">Electronics</option>
+              <option value="Apparel">Apparel</option>
+              <option value="Wholesale">Wholesale</option>
+              <option value="Services">Services</option>
+            </select>
+          </div>
+          <div class="settings-form-row">
+            <label>Category Group</label>
+            <input type="text" id="prod-category" placeholder="E.g. Food, Rooms, Hardware, Medicines" required>
+          </div>
+          <div class="settings-form-row">
+            <label>Quantity Stock Level</label>
+            <input type="number" id="prod-stock" value="100" min="0" required>
+          </div>
+          <div class="settings-form-row">
+            <label>Unit Rate ($)</label>
+            <input type="number" id="prod-price" value="0.00" step="0.01" min="0" required>
+          </div>
+          <div class="settings-form-row">
+            <label>Tax Rate (%)</label>
+            <input type="number" id="prod-tax" value="18.0" step="0.1" required>
+          </div>
+          
+          <!-- Dynamic Attribute dependent on Industry choice -->
+          <div class="settings-form-row" id="product-custom-attr-container">
+            <label id="product-custom-attr-label">Extra Property Attribute</label>
+            <input type="text" id="prod-custom-attr-val" placeholder="Custom properties value">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" id="btn-cancel-product-modal">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-save-product-modal"><i class="fa-solid fa-floppy-disk"></i> Commit Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Contact Modal for CRM Adding -->
+  <div class="modal-backdrop" id="contact-editor-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="contact-modal-title">Create Guest Profile</h3>
+        <button class="modal-close" id="btn-close-contact-modal">&times;</button>
+      </div>
+      <form id="contact-editor-form">
+        <input type="hidden" id="crm-edit-id">
+        <div class="modal-body scrollable-modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="settings-form-row">
+            <label>Name / Organization</label>
+            <input type="text" id="crm-name" required placeholder="E.g., David Miller, TechCorp Ltd">
+          </div>
+          <div class="settings-form-row">
+            <label>Scope Profile Type</label>
+            <select id="crm-type">
+              <option value="Customer" selected>Customer / Guest</option>
+              <option value="Supplier">Supplier / Vendor</option>
+            </select>
+          </div>
+          <div class="settings-form-row">
+            <label>Email Address</label>
+            <input type="email" id="crm-email" placeholder="customer@domain.com">
+          </div>
+          <div class="settings-form-row">
+            <label>Phone Number</label>
+            <input type="text" id="crm-phone" placeholder="+1-xxx-xxx-xxxx">
+          </div>
+          <div class="settings-form-row">
+            <label>Company Entity</label>
+            <input type="text" id="crm-company" placeholder="Company Name (Optional)">
+          </div>
+          <div class="settings-form-row">
+            <label>Tax Registration No (VAT/GST)</label>
+            <input type="text" id="crm-taxid" placeholder="VAT/GST Reg (Optional)">
+          </div>
+          <div class="settings-form-row">
+            <label>Outstanding Balance ($)</label>
+            <input type="number" id="crm-balance" value="0.00" step="0.01">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" id="btn-cancel-contact-modal">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-save-contact-modal"><i class="fa-solid fa-floppy-disk"></i> Save Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Organization Selector Modal -->
+  <div class="modal-backdrop" id="org-selector-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="org-modal-title-header"><i class="fa-solid fa-circle-nodes" style="color: var(--primary);"></i> Link Zoho Books Organization</h3>
+        <button class="modal-close" id="btn-close-org-modal">&times;</button>
+      </div>
+      <div class="modal-body scrollable-modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0;">Multiple Zoho Books organizations were found for your account. Please select the business unit/tenant you want to link to this POS register:</p>
+        
+        <div class="org-selector-list" id="org-selector-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 250px; overflow-y: auto; padding: 2px;">
+          <!-- Organizations dynamic cards will be rendered here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="btn-cancel-org-modal">Cancel</button>
+        <button type="button" class="btn-primary" id="btn-confirm-org-select" disabled><i class="fa-solid fa-link"></i> Link & Sync Organization</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Form Modal -->
+  <div class="modal-backdrop" id="user-form-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Create Terminal User</h3>
+        <button class="modal-close" id="btn-close-user-modal">&times;</button>
+      </div>
+      <form id="user-form">
+        <div class="modal-body scrollable-modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="settings-form-row">
+            <label>Full Name</label>
+            <input type="text" id="user-full-name" required placeholder="E.g., Sonia Geller">
+          </div>
+          <div class="settings-form-row">
+            <label>Corporate Email</label>
+            <input type="email" id="user-email" required placeholder="user@company.com">
+          </div>
+          <div class="settings-form-row">
+            <label>PIN Code (4 digits)</label>
+            <input type="password" id="user-pin" required placeholder="xxxx" maxlength="4" style="letter-spacing: 4px; font-size: 16px; font-weight: 700;">
+          </div>
+          <div class="settings-form-row">
+            <label>Authorized Role</label>
+            <select id="user-role" required>
+              <option value="Admin">Admin Console</option>
+              <option value="Manager">Manager Mode</option>
+              <option value="Cashier" selected>Cashier Mode</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" id="btn-cancel-user-modal">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-save-user-modal"><i class="fa-solid fa-user-plus"></i> Save User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- PIN Prompt Modal -->
+  <div class="modal-backdrop" id="pin-prompt-modal">
+    <div class="modal-card" style="max-width: 380px;">
+      <div class="modal-header">
+        <h3 id="pin-prompt-title">PIN Verification Required</h3>
+        <button class="modal-close" id="btn-close-pin-modal">&times;</button>
+      </div>
+      <form id="pin-prompt-form">
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; text-align: center; padding: 20px 25px;">
+          <i class="fa-solid fa-shield-halved" style="font-size: 40px; color: var(--warning); margin-bottom: 5px;"></i>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.4; margin: 0;">Please enter your 4-digit PIN code to log in as <strong id="pin-prompt-user-name">User</strong>.</p>
+          <input type="password" id="pin-input-field" placeholder="••••" required maxlength="4" style="letter-spacing: 12px; font-size: 24px; font-weight: 800; text-align: center; width: 100%; max-width: 180px; margin: 10px auto; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); background: var(--bg-input);">
+          <div id="pin-error-msg" style="color: var(--danger); font-size: 12px; font-weight: 600; display: none;">Invalid PIN. Please try again.</div>
+        </div>
+        <div class="modal-footer" style="justify-content: center; gap: 15px;">
+          <button type="button" class="btn-secondary" id="btn-cancel-pin-modal" style="flex: 1;">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-confirm-pin-modal" style="flex: 1;"><i class="fa-solid fa-key"></i> Verify PIN</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Notification Toast Banner -->
+  <div class="notification-toast" id="notification-toast">
+    <i class="fa-solid fa-circle-check notification-icon"></i>
+    <span class="notification-message">Live background systems active</span>
+  </div>
+
+</body>
+</html>

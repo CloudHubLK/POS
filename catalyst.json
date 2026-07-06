@@ -1,0 +1,16 @@
+{
+  "project": {
+    "name": "POS"
+  },
+  "client": {
+    "source": "client"
+  },
+  "functions": {
+    "targets": [
+      "pos_backend"
+    ]
+  },
+  "datastore": {
+    "source": "catalyst-datastore.json"
+  }
+}

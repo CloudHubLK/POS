@@ -1,0 +1,71 @@
+{
+  "tables": [
+    {
+      "name": "Items",
+      "description": "Caches product and service items synced from Zoho Books for high-speed local lookups.",
+      "columns": [
+        { "name": "books_item_id", "type": "Text", "max_length": 100, "is_mandatory": true },
+        { "name": "name", "type": "Text", "max_length": 255, "is_mandatory": true },
+        { "name": "rate", "type": "Double", "is_mandatory": true },
+        { "name": "sku", "type": "Text", "max_length": 100 },
+        { "name": "tax_id", "type": "Text", "max_length": 100 },
+        { "name": "tax_percentage", "type": "Double", "default_value": 0.0 },
+        { "name": "stock", "type": "Double", "default_value": 999.0 },
+        { "name": "category", "type": "Text", "max_length": 100, "default_value": "General" },
+        { "name": "org_id", "type": "Text", "max_length": 100 }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Records Point of Sale checkouts, linking them to Zoho Books invoice records.",
+      "columns": [
+        { "name": "customer_name", "type": "Text", "max_length": 255, "is_mandatory": true },
+        { "name": "customer_email", "type": "Text", "max_length": 255 },
+        { "name": "subtotal", "type": "Double", "is_mandatory": true },
+        { "name": "tax_amount", "type": "Double", "is_mandatory": true },
+        { "name": "total", "type": "Double", "is_mandatory": true },
+        { "name": "payment_mode", "type": "Text", "max_length": 50, "is_mandatory": true },
+        { "name": "status", "type": "Text", "max_length": 50, "default_value": "Synced" },
+        { "name": "books_invoice_id", "type": "Text", "max_length": 100 },
+        { "name": "invoice_number", "type": "Text", "max_length": 100 },
+        { "name": "local_ref", "type": "Text", "max_length": 100 },
+        { "name": "org_id", "type": "Text", "max_length": 100 }
+      ]
+    },
+    {
+      "name": "Shifts",
+      "description": "Records Point of Sale register till shift openings, cash counts, drops, and closure reconciliations.",
+      "columns": [
+        { "name": "cashier_name", "type": "Text", "max_length": 255, "is_mandatory": true },
+        { "name": "opening_float", "type": "Double", "is_mandatory": true },
+        { "name": "cash_sales", "type": "Double", "default_value": 0.0 },
+        { "name": "noncash_sales", "type": "Double", "default_value": 0.0 },
+        { "name": "expected_cash", "type": "Double", "default_value": 0.0 },
+        { "name": "actual_cash", "type": "Double" },
+        { "name": "variance", "type": "Double" },
+        { "name": "status", "type": "Text", "max_length": 20, "default_value": "Open" },
+        { "name": "open_notes", "type": "Text", "max_length": 500 },
+        { "name": "close_notes", "type": "Text", "max_length": 500 },
+        { "name": "org_id", "type": "Text", "max_length": 100 }
+      ]
+    },
+    {
+      "name": "OrderItems",
+      "description": "Stores individual line items associated with local orders.",
+      "columns": [
+        { "name": "order_id", "type": "Text", "max_length": 100, "is_mandatory": true },
+        { "name": "item_id", "type": "Text", "max_length": 100, "is_mandatory": true },
+        { "name": "quantity", "type": "Double", "is_mandatory": true },
+        { "name": "rate", "type": "Double", "is_mandatory": true }
+      ]
+    },
+    {
+      "name": "Configurations",
+      "description": "Stores local custom configurations including Zoho dynamic Client OAuth credentials and theme settings.",
+      "columns": [
+        { "name": "config_key", "type": "Text", "max_length": 100, "is_mandatory": true, "is_unique": true },
+        { "name": "config_value", "type": "Text", "max_length": 1000 }
+      ]
+    }
+  ]
+}

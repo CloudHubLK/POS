@@ -1,0 +1,224 @@
+{
+  "tables": [
+    {
+      "table_name": "Items",
+      "columns": [
+        {
+          "column_name": "books_item_id",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true
+        },
+        {
+          "column_name": "name",
+          "data_type": "text",
+          "max_length": 255,
+          "mandatory": true
+        },
+        {
+          "column_name": "rate",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "sku",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "tax_id",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "tax_percentage",
+          "data_type": "double",
+          "default_value": "0.0"
+        },
+        {
+          "column_name": "stock",
+          "data_type": "double",
+          "default_value": "999.0"
+        },
+        {
+          "column_name": "category",
+          "data_type": "text",
+          "max_length": 100,
+          "default_value": "General"
+        },
+        {
+          "column_name": "org_id",
+          "data_type": "text",
+          "max_length": 100
+        }
+      ]
+    },
+    {
+      "table_name": "Orders",
+      "columns": [
+        {
+          "column_name": "customer_name",
+          "data_type": "text",
+          "max_length": 255,
+          "mandatory": true
+        },
+        {
+          "column_name": "customer_email",
+          "data_type": "text",
+          "max_length": 255
+        },
+        {
+          "column_name": "subtotal",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "tax_amount",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "total",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "payment_mode",
+          "data_type": "text",
+          "max_length": 50,
+          "mandatory": true
+        },
+        {
+          "column_name": "status",
+          "data_type": "text",
+          "max_length": 50,
+          "default_value": "Synced"
+        },
+        {
+          "column_name": "books_invoice_id",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "invoice_number",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "local_ref",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "org_id",
+          "data_type": "text",
+          "max_length": 100
+        }
+      ]
+    },
+    {
+      "table_name": "Shifts",
+      "columns": [
+        {
+          "column_name": "cashier_name",
+          "data_type": "text",
+          "max_length": 255,
+          "mandatory": true
+        },
+        {
+          "column_name": "opening_float",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "cash_sales",
+          "data_type": "double",
+          "default_value": "0.0"
+        },
+        {
+          "column_name": "noncash_sales",
+          "data_type": "double",
+          "default_value": "0.0"
+        },
+        {
+          "column_name": "expected_cash",
+          "data_type": "double",
+          "default_value": "0.0"
+        },
+        {
+          "column_name": "actual_cash",
+          "data_type": "double"
+        },
+        {
+          "column_name": "variance",
+          "data_type": "double"
+        },
+        {
+          "column_name": "status",
+          "data_type": "text",
+          "max_length": 20,
+          "default_value": "Open"
+        },
+        {
+          "column_name": "open_notes",
+          "data_type": "text",
+          "max_length": 500
+        },
+        {
+          "column_name": "close_notes",
+          "data_type": "text",
+          "max_length": 500
+        },
+        {
+          "column_name": "org_id",
+          "data_type": "text",
+          "max_length": 100
+        }
+      ]
+    },
+    {
+      "table_name": "OrderItems",
+      "columns": [
+        {
+          "column_name": "order_id",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true
+        },
+        {
+          "column_name": "item_id",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true
+        },
+        {
+          "column_name": "quantity",
+          "data_type": "double",
+          "mandatory": true
+        },
+        {
+          "column_name": "rate",
+          "data_type": "double",
+          "mandatory": true
+        }
+      ]
+    },
+    {
+      "table_name": "Configurations",
+      "columns": [
+        {
+          "column_name": "config_key",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true,
+          "unique": true
+        },
+        {
+          "column_name": "config_value",
+          "data_type": "text",
+          "max_length": 1000
+        }
+      ]
+    }
+  ]
+}

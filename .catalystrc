@@ -1,0 +1,38 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "36929000000175095",
+      "name": "POS",
+      "domain": {
+        "id": "10126722107",
+        "name": "pos-914406080.development"
+      },
+      "timezone": "Asia/Colombo",
+      "env": [
+        {
+          "idx": 1,
+          "id": "914406080",
+          "name": "Development",
+          "type": 3,
+          "env_status": "Active",
+          "project_details": {
+            "project_name": "POS",
+            "id": "36929000000175095",
+            "project_type": "Live"
+          },
+          "is_default": true,
+          "action_required": false
+        }
+      ]
+    }
+  ]
+}

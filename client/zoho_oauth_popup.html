@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoho Accounts — Secure Login & Authorization</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    :root {
+      --primary: #1976d2;
+      --primary-hover: #1565c0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --border-color: #e2e8f0;
+      --success: #16a34a;
+      --success-hover: #15803d;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --font-family: 'Inter', sans-serif;
+      --font-family-title: 'Outfit', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-family);
+      color: var(--text-primary);
+      background-color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .oauth-window {
+      background: #ffffff;
+      width: 100%;
+      max-width: 520px;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08), 0 5px 15px rgba(0, 0, 0, 0.04);
+      border: 1px solid var(--border-color);
+      animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes zoomIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    /* Zoho Dot Representation */
+    .zoho-logo-dots {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 24px;
+      justify-content: center;
+    }
+
+    .zoho-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    .zoho-dot.red { background: #e11d48; animation-delay: 0s; }
+    .zoho-dot.blue { background: #2563eb; animation-delay: 0.2s; }
+    .zoho-dot.yellow { background: #eab308; animation-delay: 0.4s; }
+    .zoho-dot.green { background: #16a34a; animation-delay: 0.6s; }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.2); opacity: 1; }
+    }
+
+    .oauth-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .oauth-header h1 {
+      font-family: var(--font-family-title);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .oauth-header p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .app-identifier {
+      background: #f1f5f9;
+      padding: 12px 18px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--border-color);
+      margin-bottom: 24px;
+    }
+
+    .app-icon-badge {
+      background: var(--primary);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 16px;
+    }
+
+    .app-name-details h4 {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .app-name-details p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .scopes-list {
+      background: #f8fafc;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+
+    .scopes-list h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .scope-item {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .scope-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .scope-item i {
+      color: var(--success);
+      font-size: 14px;
+      margin-top: 2px;
+    }
+
+    .secure-banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--success);
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+
+    .secure-banner i {
+      font-size: 12px;
+    }
+
+    .actions-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .btn {
+      font-family: var(--font-family);
+      width: 100%;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      border: none;
+    }
+
+    .btn-accept {
+      background: var(--success);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2);
+    }
+
+    .btn-accept:hover {
+      background: var(--success-hover);
+      box-shadow: 0 6px 16px rgba(22, 163, 74, 0.3);
+    }
+
+    .btn-deny {
+      background: #ffffff;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-deny:hover {
+      background: #f1f5f9;
+      color: var(--text-primary);
+    }
+
+    /* Spinner */
+    .spinner {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading .spinner {
+      display: inline-block;
+    }
+
+    .loading .btn-text {
+      display: none;
+    }
+
+    /* Screen-loader on success */
+    .success-screen {
+      display: none;
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .success-screen i {
+      font-size: 54px;
+      color: var(--success);
+      margin-bottom: 20px;
+      animation: checkPulse 0.5s ease-out;
+    }
+
+    @keyframes checkPulse {
+      0% { transform: scale(0.6); opacity: 0; }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .success-screen h2 {
+      font-family: var(--font-family-title);
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .success-screen p {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="oauth-window">
+    <div id="oauth-content-panel">
+      <!-- Zoho dot indicator -->
+      <div class="zoho-logo-dots">
+        <span class="zoho-dot red"></span>
+        <span class="zoho-dot blue"></span>
+        <span class="zoho-dot yellow"></span>
+        <span class="zoho-dot green"></span>
+      </div>
+
+      <div class="oauth-header">
+        <h1>Authorize Cloud POS</h1>
+        <p>Log in using your Zoho credentials to establish a secure single-sign-on integration tunnel with Zoho Books.</p>
+      </div>
+
+      <div class="app-identifier">
+        <div class="app-icon-badge">
+          <i class="fa-solid fa-hotel"></i>
+        </div>
+        <div class="app-name-details">
+          <h4>Cloud POS Suite V3</h4>
+          <p>Verified OAuth Serverless Application</p>
+        </div>
+      </div>
+
+      <div class="scopes-list">
+        <h3>Requested Permissions</h3>
+        <div class="scope-item">
+          <i class="fa-solid fa-circle-check"></i>
+          <span>View, fetch, and synchronize active inventory catalogs and product stock rates.</span>
+        </div>
+        <div class="scope-item">
+          <i class="fa-solid fa-circle-check"></i>
+          <span>Create and sync sales transactions, room charges, and printable checkout receipts.</span>
+        </div>
+        <div class="scope-item">
+          <i class="fa-solid fa-circle-check"></i>
+          <span>Read, add, and update CRM profiles for guest contacts and wholesalers.</span>
+        </div>
+      </div>
+
+      <div class="secure-banner">
+        <i class="fa-solid fa-shield-halved"></i>
+        <span>Secure Zoho accounts end-to-end encryption active</span>
+      </div>
+
+      <div class="actions-panel">
+        <button type="button" class="btn btn-accept" id="btn-accept-oauth">
+          <span class="spinner"></span>
+          <span class="btn-text">Accept & Link Organization</span>
+        </button>
+        <button type="button" class="btn btn-deny" id="btn-deny-oauth">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Success Screen overlay -->
+    <div class="success-screen" id="success-panel">
+      <i class="fa-solid fa-circle-check"></i>
+      <h2>Access Approved!</h2>
+      <p>Your POS terminal is now linked securely to Zoho Books.<br>Closing secure window now...</p>
+    </div>
+  </div>
+
+  <script>
+    const btnAccept = document.getElementById('btn-accept-oauth');
+    const btnDeny = document.getElementById('btn-deny-oauth');
+    const contentPanel = document.getElementById('oauth-content-panel');
+    const successPanel = document.getElementById('success-panel');
+
+    btnAccept.addEventListener('click', () => {
+      btnAccept.classList.add('loading');
+      btnAccept.disabled = true;
+      btnDeny.disabled = true;
+
+      // Simulate handshake processing
+      setTimeout(() => {
+        contentPanel.style.display = 'none';
+        successPanel.style.display = 'block';
+
+        // Send oauth_success message to the parent opener
+        if (window.opener) {
+          window.opener.postMessage("oauth_success", "*");
+        }
+
+        // Close popup after 1.5 seconds
+        setTimeout(() => {
+          window.close();
+        }, 1500);
+
+      }, 1500);
+    });
+
+    btnDeny.addEventListener('click', () => {
+      window.close();
+    });
+  </script>
+</body>
+</html>
