@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 // requests to /api/* are proxied to it; in production this app is built to /dist and
 // deployed as the Catalyst client, calling the same relative /api/* routes.
 export default defineConfig({
+  base: './',
   plugins: [react()],
   server: {
     port: 5173,
