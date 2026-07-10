@@ -1,10 +1,11 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 console.log("Starting Catalyst Deploy Client Runner...");
 
 const nodePaths = [
-  'C:\\Users\\MK\\.gemini\\antigravity\\scratch\\POS\\node18\\node.exe',
+  path.join(__dirname, 'node18', 'node.exe'),
   'C:\\Program Files\\nodejs\\node.exe',
   'node'
 ];
@@ -25,7 +26,7 @@ const child = spawn(nodeExecutable, [
   '--only',
   'client'
 ], {
-  cwd: 'C:\\Users\\MK\\.gemini\\antigravity\\scratch\\POS',
+  cwd: __dirname,
   env: process.env
 });
 

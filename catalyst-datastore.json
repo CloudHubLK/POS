@@ -219,6 +219,65 @@
           "max_length": 1000
         }
       ]
+    },
+    {
+      "table_name": "Organizations",
+      "columns": [
+        {
+          "column_name": "org_name",
+          "data_type": "text",
+          "max_length": 255,
+          "mandatory": true
+        },
+        {
+          "column_name": "industry",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "master_admin_user_id",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "zoho_books_org_id",
+          "data_type": "text",
+          "max_length": 100
+        },
+        {
+          "column_name": "books_connected",
+          "data_type": "text",
+          "max_length": 10
+        }
+      ]
+    },
+    {
+      "table_name": "OrgUsers",
+      "columns": [
+        {
+          "column_name": "org_id",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true
+        },
+        {
+          "column_name": "user_id",
+          "data_type": "text",
+          "max_length": 100,
+          "mandatory": true
+        },
+        {
+          "column_name": "role",
+          "data_type": "text",
+          "max_length": 50,
+          "mandatory": true
+        },
+        {
+          "column_name": "display_name",
+          "data_type": "text",
+          "max_length": 255
+        }
+      ]
     }
   ]
 }

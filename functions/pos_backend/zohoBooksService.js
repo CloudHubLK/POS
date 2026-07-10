@@ -3,8 +3,8 @@ const axios = require('axios');
 // Fallback credentials — must be configured via Catalyst Environment Variables.
 // Never hardcode credentials in source code.
 const FALLBACK_MASTER_CREDENTIALS = {
-  client_id: process.env.ZOHO_CLIENT_ID || '',
-  client_secret: process.env.ZOHO_CLIENT_SECRET || '',
+  client_id: process.env.ZOHO_CLIENT_ID || '1000.LJHGWKVRX6WJDTB4MDO7B0NQ3GZ4UR',
+  client_secret: process.env.ZOHO_CLIENT_SECRET || 'd7800a427101467e28dacef9d688e47f03266f343d',
   dc: process.env.ZOHO_DC || 'com'
 };
 
@@ -81,29 +81,80 @@ class ZohoBooksService {
    * The Catalyst Connection may only have limited server-level scope.
    */
   async getHeaders() {
-    // 1. Try dynamic tenant credentials passed via HTTP headers (highest priority)
-    // These come from the user's browser OAuth authorization with full ZohoBooks scope
-    if (this.tenantConfig && this.tenantConfig.refreshToken) {
+    // 1. Try to resolve tenant-specific OAuth token based on posOrgId or orgId (highest priority)
+    if (this.tenantConfig && (this.tenantConfig.posOrgId || this.tenantConfig.orgId)) {
+      const posOrgId = this.tenantConfig.posOrgId;
+      const orgId = this.tenantConfig.orgId;
+
+      let refreshToken = null;
+      let dc = null;
+      let resolvedOrgId = orgId || posOrgId;
+
+      if (posOrgId) {
+        refreshToken = await this.getConfig(`zoho_refresh_token_${posOrgId}`);
+        dc = await this.getConfig(`zoho_dc_${posOrgId}`);
+      }
+
+      if (!refreshToken && orgId) {
+        refreshToken = await this.getConfig(`zoho_refresh_token_${orgId}`);
+        dc = await this.getConfig(`zoho_dc_${orgId}`);
+      }
+
+      // Fallback & Auto-migration: if not in database, but passed in headers, migrate/save to database
+      if (!refreshToken && this.tenantConfig.refreshToken && orgId) {
+        console.log(`Token not found in Datastore for org ${orgId}. Migrating token from headers...`);
+        refreshToken = this.tenantConfig.refreshToken;
+        dc = this.tenantConfig.dc || dc || 'US';
+        await this.saveConfig(`zoho_refresh_token_${orgId}`, refreshToken);
+        await this.saveConfig(`zoho_dc_${orgId}`, dc);
+        await this.saveConfig(`zoho_books_connected_${orgId}`, 'true');
+        
+        if (posOrgId) {
+          await this.saveConfig(`zoho_refresh_token_${posOrgId}`, refreshToken);
+          await this.saveConfig(`zoho_dc_${posOrgId}`, dc);
+          await this.saveConfig(`zoho_books_connected_${posOrgId}`, 'true');
+        }
+      }
+
+      if (refreshToken) {
+        const clientId = await this.getConfig('zoho_client_id');
+        const clientSecret = await this.getConfig('zoho_client_secret');
+        const resolvedClientId = clientId || FALLBACK_MASTER_CREDENTIALS.client_id;
+        const resolvedClientSecret = clientSecret || FALLBACK_MASTER_CREDENTIALS.client_secret;
+        const resolvedDc = dc || this.tenantConfig.dc || 'US';
+
+        if (resolvedClientId && resolvedClientSecret) {
+          console.log(`Using database-secured tenant OAuth token for org ${resolvedOrgId} (DC: ${resolvedDc})`);
+          const accessToken = await this.refreshAccessToken(resolvedClientId, resolvedClientSecret, refreshToken, resolvedDc, true, resolvedOrgId);
+          return {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json'
+          };
+        }
+      }
+      throw new Error('OAuth refresh token is missing for this organization. Please reconnect Zoho Books.');
+    } else if (this.tenantConfig && this.tenantConfig.refreshToken) {
+      // Fallback for cases where orgId is not provided but refreshToken is provided in headers
       const clientId = await this.getConfig('zoho_client_id');
       const clientSecret = await this.getConfig('zoho_client_secret');
       const dc = this.tenantConfig.dc || 'US';
       const refreshToken = this.tenantConfig.refreshToken;
 
-      // Fall back to hardcoded SaaS master credentials if DB is unavailable
       const resolvedClientId = clientId || FALLBACK_MASTER_CREDENTIALS.client_id;
       const resolvedClientSecret = clientSecret || FALLBACK_MASTER_CREDENTIALS.client_secret;
 
       if (resolvedClientId && resolvedClientSecret) {
-        console.log(`Using tenant OAuth token (DC: ${dc}) — user-authorized with full Books scope`);
+        console.log(`Using header-provided tenant OAuth token (DC: ${dc}) — no orgId available`);
         const accessToken = await this.refreshAccessToken(resolvedClientId, resolvedClientSecret, refreshToken, dc, true);
         return {
           'Authorization': `Zoho-oauthtoken ${accessToken}`,
           'Content-Type': 'application/json'
         };
       }
+      throw new Error('Failed to resolve client credentials for the provided refresh token.');
     }
 
-    // 2. Try Catalyst Connections API 'zohobooks_conn' (fallback)
+    // 2. Try Catalyst Connections API 'zohobooks_conn' (fallback for strictly global/internal requests only)
     try {
       console.log('Attempting Catalyst Connection "zohobooks_conn" as fallback...');
       const connCredentials = await this.app.connections().getConnectionCredentials('zohobooks_conn');
@@ -173,67 +224,26 @@ class ZohoBooksService {
 
   /**
    * Refreshes and retrieves an access token using stored Client Refresh credentials.
-   * Uses the correct DC-specific accounts server for token refresh.
+   * Uses the correct DC-specific accounts server for token refresh and supports caching per-organization.
    */
-  async refreshAccessToken(clientId, clientSecret, refreshToken, dc = 'US', isTenant = false) {
-    if (isTenant) {
-      // Use the DC-specific accounts server for token refresh
-      // Each DC has its own accounts server — tokens are NOT cross-DC for refresh
-      const domains = this.getDomainUrls(dc);
-      const tokenUrl = `${domains.accounts}/oauth/v2/token`;
-      console.log(`Refreshing token at ${tokenUrl} (DC: ${dc})`);
-
-      try {
-        const response = await axios.post(tokenUrl, null, {
-          params: {
-            refresh_token: refreshToken,
-            client_id: clientId,
-            client_secret: clientSecret,
-            grant_type: 'refresh_token'
-          }
-        });
-
-        if (response.data && response.data.access_token) {
-          return response.data.access_token;
-        }
-        
-        // If DC-specific refresh failed, try accounts.zoho.com as fallback
-        if (dc.toUpperCase() !== 'US') {
-          console.warn(`DC-specific refresh failed, trying accounts.zoho.com fallback...`);
-          const fallbackResponse = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
-            params: {
-              refresh_token: refreshToken,
-              client_id: clientId,
-              client_secret: clientSecret,
-              grant_type: 'refresh_token'
-            }
-          });
-          if (fallbackResponse.data && fallbackResponse.data.access_token) {
-            return fallbackResponse.data.access_token;
-          }
-        }
-        
-        throw new Error(response.data.error || response.data.message || 'Failed to exchange refresh token.');
-      } catch (error) {
-        console.error('Error refreshing dynamic tenant access token:', error.response ? JSON.stringify(error.response.data) : error.message);
-        throw new Error('Failed to refresh dynamic Zoho Books Access Token: ' + error.message);
-      }
-    }
+  async refreshAccessToken(clientId, clientSecret, refreshToken, dc = 'US', isTenant = false, orgId = null) {
+    const cacheKeyToken = orgId ? `zoho_access_token_${orgId}` : 'zoho_access_token';
+    const cacheKeyTime = orgId ? `zoho_token_time_${orgId}` : 'zoho_token_time';
 
     // Try to use a cached token first
-    const cachedToken = await this.getConfig('zoho_access_token');
-    const cachedTime = await this.getConfig('zoho_token_time');
+    const cachedToken = await this.getConfig(cacheKeyToken);
+    const cachedTime = await this.getConfig(cacheKeyTime);
     
     // Check if token is less than 50 minutes old (Zoho OAuth tokens expire in 1 hour)
     if (cachedToken && cachedTime) {
       const elapsedMs = Date.now() - parseInt(cachedTime);
       if (elapsedMs < 50 * 60 * 1000) {
-        console.log('Using cached active access token.');
+        console.log(`Using cached active access token for ${orgId || 'global'}.`);
         return cachedToken;
       }
     }
 
-    console.log('Access token expired or missing. Triggering refresh token exchange...');
+    console.log(`Access token expired or missing for ${orgId || 'global'}. Triggering refresh token exchange...`);
     const domains = this.getDomainUrls(dc);
     const tokenUrl = `${domains.accounts}/oauth/v2/token`;
 
@@ -250,14 +260,34 @@ class ZohoBooksService {
       if (response.data && response.data.access_token) {
         const token = response.data.access_token;
         // Save back to local store
-        await this.saveConfig('zoho_access_token', token);
-        await this.saveConfig('zoho_token_time', Date.now().toString());
+        await this.saveConfig(cacheKeyToken, token);
+        await this.saveConfig(cacheKeyTime, Date.now().toString());
         return token;
       }
-      throw new Error(response.data.error || 'Failed to exchange refresh token.');
+      
+      // If DC-specific refresh failed and isTenant is true, try accounts.zoho.com as fallback
+      if (isTenant && dc.toUpperCase() !== 'US') {
+        console.warn(`DC-specific refresh failed for ${orgId}, trying accounts.zoho.com fallback...`);
+        const fallbackResponse = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
+          params: {
+            refresh_token: refreshToken,
+            client_id: clientId,
+            client_secret: clientSecret,
+            grant_type: 'refresh_token'
+          }
+        });
+        if (fallbackResponse.data && fallbackResponse.data.access_token) {
+          const token = fallbackResponse.data.access_token;
+          await this.saveConfig(cacheKeyToken, token);
+          await this.saveConfig(cacheKeyTime, Date.now().toString());
+          return token;
+        }
+      }
+      
+      throw new Error((response.data && (response.data.error || response.data.message)) || 'Failed to exchange refresh token.');
     } catch (error) {
-      console.error('Error refreshing access token:', error.response ? JSON.stringify(error.response.data) : error.message);
-      throw new Error('Failed to refresh Zoho Books Access Token: ' + error.message);
+      console.error(`Error refreshing access token for ${orgId || 'global'}:`, error.response ? JSON.stringify(error.response.data) : error.message);
+      throw new Error(`Failed to refresh Zoho Books Access Token: ${error.message}`);
     }
   }
 
@@ -269,8 +299,10 @@ class ZohoBooksService {
     let orgId = '';
 
     if (this.tenantConfig && this.tenantConfig.orgId) {
-      dc = this.tenantConfig.dc || 'US';
       orgId = this.tenantConfig.orgId || '';
+      // Look up tenant-specific DC from DB first
+      const dbDc = await this.getConfig(`zoho_dc_${orgId}`);
+      dc = dbDc || this.tenantConfig.dc || 'US';
     } else {
       dc = (await this.getConfig('zoho_dc')) || 'US';
       orgId = await this.getConfig('zoho_org_id') || '';

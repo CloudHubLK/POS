@@ -13,8 +13,8 @@ app.use(express.json());
    Never hardcode secrets in source code.
    ========================================================================== */
 const SAAS_MASTER_CREDENTIALS = {
-  client_id: process.env.ZOHO_CLIENT_ID || '',
-  client_secret: process.env.ZOHO_CLIENT_SECRET || '',
+  client_id: process.env.ZOHO_CLIENT_ID || '1000.LJHGWKVRX6WJDTB4MDO7B0NQ3GZ4UR',
+  client_secret: process.env.ZOHO_CLIENT_SECRET || 'd7800a427101467e28dacef9d688e47f03266f343d',
   dc: process.env.ZOHO_DC || 'com'
 };
 
@@ -174,7 +174,7 @@ async function safeUpsertConfig(catalystApp, key, value) {
     return true;
   } catch (err) {
     console.error(`safeUpsertConfig: insertRow failed for '${key}':`, err.message);
-    return null;
+    throw err;
   }
 }
 
@@ -248,6 +248,76 @@ function getTenantConfig(req) {
   return null;
 }
 
+/**
+ * Resolves the current Catalyst user, and returns their OrgUsers and Organizations row if tables exist.
+ * Otherwise, falls back gracefully to a default organization 'org_default' (virtual single-tenant).
+ */
+async function getCurrentOrgUser(req, catalystApp) {
+  let user = null;
+  try {
+    user = await catalystApp.userManagement().getCurrentUser();
+  } catch (err) {
+    return null;
+  }
+
+  if (!user || !user.email) return null;
+
+  const safeUserId = sanitizeZcql(user.user_id);
+
+  // Try querying OrgUsers and Organizations tables
+  try {
+    const orgUserRows = await safeZcql(catalystApp, 
+      `SELECT org_id, role, display_name FROM OrgUsers WHERE user_id = '${safeUserId}'`
+    );
+
+    if (orgUserRows && orgUserRows.length > 0) {
+      const orgUser = orgUserRows[0].OrgUsers;
+      const safeOrgId = sanitizeZcql(orgUser.org_id);
+      
+      const orgRows = await safeZcql(catalystApp, 
+        `SELECT org_name, industry, zoho_books_org_id, books_connected FROM Organizations WHERE ROWID = '${safeOrgId}'`
+      );
+
+      const org = (orgRows && orgRows.length > 0) ? orgRows[0].Organizations : {
+        org_name: 'My Store',
+        industry: 'Retail',
+        zoho_books_org_id: '',
+        books_connected: 'false'
+      };
+
+      return { user, orgUser, org };
+    }
+  } catch (err) {
+    const isMissingTable = err.message && (err.message.includes('No such Table') || err.message.includes('No such column'));
+    if (isMissingTable) {
+      console.warn('[getCurrentOrgUser] Organizations/OrgUsers table or column missing, using Configurations fallback');
+    } else {
+      console.error('[getCurrentOrgUser] Query error:', err.message);
+    }
+  }
+
+  // Fallback mode if tables don't exist or user is not mapped yet.
+  // We check Configurations to see if they are already considered onboarded.
+  // This maintains absolute compatibility during table migration.
+  const fallbackOrgId = 'org_default';
+  const virtualOrgUser = {
+    org_id: fallbackOrgId,
+    user_id: user.user_id,
+    role: 'Admin', // First/sole user behaves as Admin
+    display_name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+  };
+
+  const virtualOrg = {
+    org_name: 'CloudHub POS',
+    industry: 'Retail',
+    zoho_books_org_id: '',
+    books_connected: 'false'
+  };
+
+  return { user, orgUser: virtualOrgUser, org: virtualOrg };
+}
+
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), platform: 'Cloud POS SaaS' });
@@ -307,7 +377,7 @@ app.get('/api/config/smtp', async (req, res) => {
  * This is a one-time diagnostic — once tables are confirmed, this endpoint is no longer needed.
  */
 app.get('/api/setup/status', async (req, res) => {
-  const requiredTables = ['Items', 'Orders', 'OrderItems', 'Configurations'];
+  const requiredTables = ['Items', 'Orders', 'OrderItems', 'Configurations', 'Organizations', 'OrgUsers'];
   const tableStatus = {};
 
   for (const tableName of requiredTables) {
@@ -361,12 +431,17 @@ app.get('/api/auth/status', async (req, res) => {
     const master = await ensureMasterCredentials(booksService);
     const orgId = await booksService.getConfig('zoho_org_id');
 
+    const lastConnectedStr = await booksService.getConfig('last_connected_org');
+    const lastConnected = lastConnectedStr ? JSON.parse(lastConnectedStr) : null;
+
     res.status(200).json({
       success: true,
       catalyst_connection: catalystConnAvailable,
       master_configured: !!(master.client_id && master.client_secret),
       dc: master.dc,
-      org_id: orgId || null
+      org_id: orgId || (lastConnected ? lastConnected.orgId : null),
+      connected: !!lastConnected,
+      connection: lastConnected
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -472,47 +547,73 @@ app.post('/api/auth/seed-credentials', async (req, res) => {
 app.get('/api/auth/me', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const user = await catalystApp.userManagement().getCurrentUser();
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
 
-    // Auto-provision a POS staff record for this Catalyst-authenticated user
-    // if one doesn't already exist. Without this, users could sign in to the
-    // Catalyst app itself but never appear in the POS staff/Users list, since
-    // that list was previously only populated via the manual invite/OTP flow.
-    let posUser = null;
-    try {
-      const userKey = `user_${user.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const existing = await safeZcql(catalystApp, `SELECT config_value FROM Configurations WHERE config_key = '${userKey}'`);
-
-      if (existing && existing.length > 0 && existing[0].Configurations.config_value !== 'used') {
-        try { posUser = JSON.parse(existing[0].Configurations.config_value); } catch (e) { posUser = null; }
-      }
-
-      if (!posUser) {
-        // First time this Catalyst user has ever hit the POS backend — create their record.
-        // Default role is 'Cashier'; an admin can promote them later via /api/users/update-role.
-        const defaultRole = 'Cashier';
-        posUser = {
-          email: user.email,
-          name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
-          role: defaultRole,
-          permissions: getRolePermissions(defaultRole),
-          status: 'active',
-          auto_provisioned: true,
-          created_at: Date.now()
-        };
-        await safeUpsertConfig(catalystApp, userKey, JSON.stringify(posUser));
-        console.log(`[AUTO-PROVISION] Created POS user record for ${user.email}`);
-      }
-    } catch (provisionErr) {
-      // Never block login/auth-check if provisioning fails — just log it.
-      console.warn('[AUTO-PROVISION] Failed to auto-create POS user record:', provisionErr.message);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated', authenticated: false });
     }
 
-    res.json({ success: true, email: user.email, user_id: user.user_id, pos_user: posUser });
+    const { user, orgUser, org } = orgUserContext;
+
+    // Load org-specific settings to see if they are onboarded
+    const prefix = `org_${orgUser.org_id}_setting_`;
+    const settingsRows = await safeZcql(catalystApp,
+      `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE '${prefix}%'`
+    );
+    
+    const settings = {};
+    if (settingsRows && settingsRows.length > 0) {
+      settingsRows.forEach(row => {
+        const key = row.Configurations.config_key.replace(prefix, '');
+        settings[key] = row.Configurations.config_value;
+      });
+    }
+
+    // A user is considered onboarded if:
+    // 1. Either settings.onboarded is 'true' or they have a customized store_name (not default)
+    let isOnboarded = settings.onboarded === 'true' || (settings.store_name && settings.store_name !== 'CloudHub POS');
+
+    // If we are in the fallback/virtual org_default tenant, check legacy global settings
+    if (orgUser.org_id === 'org_default' && !isOnboarded) {
+      const globalRows = await safeZcql(catalystApp,
+        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'pos_setting_%'`
+      );
+      const globalSettings = {};
+      if (globalRows && globalRows.length > 0) {
+        globalRows.forEach(row => {
+          const key = row.Configurations.config_key.replace('pos_setting_', '');
+          globalSettings[key] = row.Configurations.config_value;
+        });
+      }
+      isOnboarded = globalSettings.onboarded === 'true' || (globalSettings.store_name && globalSettings.store_name !== 'CloudHub POS');
+    }
+
+    const posUser = {
+      email: user.email,
+      name: orgUser.display_name || user.email,
+      role: orgUser.role || 'Cashier',
+      permissions: getRolePermissions(orgUser.role || 'Cashier'),
+      status: 'active',
+      org_id: orgUser.org_id,
+      org_name: org ? org.org_name : 'CloudHub POS',
+      industry: org ? org.industry : 'Retail',
+      onboarded: isOnboarded
+    };
+
+    res.json({
+      success: true,
+      email: user.email,
+      user_id: user.user_id,
+      pos_user: posUser,
+      authenticated: true,
+      onboarded: isOnboarded
+    });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    console.warn('[AUTH/ME] Failed:', err.message);
+    res.status(401).json({ success: false, error: err.message, authenticated: false });
   }
 });
+
 
 /**
  * GET /api/auth/url
@@ -765,6 +866,27 @@ app.get('/api/auth/callback', async (req, res) => {
       const adminPayload = { email: userEmail, name: adminName, role: 'Admin', permissions: getRolePermissions('Admin'), status: 'active', invited_at: Date.now(), verified_at: Date.now() };
       await safeUpsertConfig(catalystApp, adminUserKey, JSON.stringify(adminPayload));
 
+      // Save the exchanged tokens for each organization in Configurations
+      for (const org of organizations) {
+        console.log(`Persisting secure OAuth configs in Datastore for org ${org.organization_id} (${org.name})...`);
+        await safeUpsertConfig(catalystApp, `zoho_refresh_token_${org.organization_id}`, refreshToken);
+        await safeUpsertConfig(catalystApp, `zoho_dc_${org.organization_id}`, foundDc);
+        await safeUpsertConfig(catalystApp, `zoho_org_name_${org.organization_id}`, org.name);
+        await safeUpsertConfig(catalystApp, `zoho_books_connected_${org.organization_id}`, 'true');
+      }
+
+      // Save last_connected_org for client-side polling fallback
+      if (organizations.length > 0) {
+        const lastConnectedPayload = {
+          refreshToken,
+          dc: foundDc || 'US',
+          orgId: organizations[0].organization_id,
+          orgName: organizations[0].name,
+          email: userEmail
+        };
+        await safeUpsertConfig(catalystApp, 'last_connected_org', JSON.stringify(lastConnectedPayload));
+      }
+
       // Return secure handshaking landing page that sends credentials to parent window
       res.send(`
         <!DOCTYPE html>
@@ -893,8 +1015,13 @@ app.get('/api/auth/callback', async (req, res) => {
  * Dynamic client session disconnection
  */
 app.post('/api/auth/disconnect', async (req, res) => {
-  // Front-end handles deletion of active sessions in local storage
-  res.status(200).json({ success: true, message: 'Successfully disconnected Zoho session' });
+  try {
+    const catalystApp = catalyst.initialize(req);
+    await safeUpsertConfig(catalystApp, 'last_connected_org', '');
+    res.status(200).json({ success: true, message: 'Successfully disconnected Zoho session' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 /* ==========================================================================
@@ -1020,15 +1147,83 @@ app.post('/api/users/verify-otp', async (req, res) => {
 app.get('/api/users', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const result = await safeZcql(catalystApp, `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'user_%'`);
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
 
-    const users = result
-      .filter(row => row.Configurations.config_value !== 'used')
-      .map(row => {
-        try { return JSON.parse(row.Configurations.config_value); } catch (e) { return null; }
-      })
-      .filter(Boolean);
+    const { user, orgUser } = orgUserContext;
+    const orgId = orgUser.org_id;
 
+    const usersMap = new Map();
+
+    // 1. Add the current active user as the primary entry in the roster
+    const currentActiveUser = {
+      email: user.email,
+      name: orgUser.display_name || user.email,
+      role: orgUser.role === 'master_admin' ? 'Admin' : (orgUser.role || 'Cashier'),
+      permissions: getRolePermissions(orgUser.role || 'Cashier'),
+      status: 'active',
+      invited_at: Date.now(),
+      verified_at: Date.now()
+    };
+    usersMap.set(user.email.toLowerCase(), currentActiveUser);
+
+    // 2. Fetch other users from OrgUsers table for this tenant
+    try {
+      const orgUsersRows = await safeZcql(catalystApp,
+        `SELECT user_id, role, display_name FROM OrgUsers WHERE org_id = '${sanitizeZcql(orgId)}'`
+      );
+      if (orgUsersRows && orgUsersRows.length > 0) {
+        for (const row of orgUsersRows) {
+          const item = row.OrgUsers;
+          const userEmail = item.user_id; // Store email or user_id
+          const userRole = item.role === 'master_admin' ? 'Admin' : (item.role || 'Cashier');
+          
+          if (!usersMap.has(userEmail.toLowerCase())) {
+            usersMap.set(userEmail.toLowerCase(), {
+              email: userEmail,
+              name: item.display_name || userEmail,
+              role: userRole,
+              permissions: getRolePermissions(userRole),
+              status: 'active',
+              invited_at: Date.now(),
+              verified_at: Date.now()
+            });
+          }
+        }
+      }
+    } catch (err) {
+      // If table doesn't exist, fallback to reading Configurations
+      console.warn('[GET /api/users] OrgUsers query failed, falling back to legacy Configurations', err.message);
+    }
+
+    // 3. Fallback/compatibility: Fetch any user keys from Configurations
+    try {
+      const configUsers = await safeZcql(catalystApp, 
+        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'user_%'`
+      );
+      if (configUsers && configUsers.length > 0) {
+        configUsers.forEach(row => {
+          if (row.Configurations.config_value !== 'used') {
+            try {
+              const u = JSON.parse(row.Configurations.config_value);
+              if (u && u.email && !usersMap.has(u.email.toLowerCase())) {
+                usersMap.set(u.email.toLowerCase(), {
+                  ...u,
+                  role: u.role === 'master_admin' ? 'Admin' : (u.role || 'Cashier'),
+                  permissions: getRolePermissions(u.role)
+                });
+              }
+            } catch (e) { /* ignore parse errors */ }
+          }
+        });
+      }
+    } catch (configErr) {
+      console.warn('[GET /api/users] Legacy config query failed:', configErr.message);
+    }
+
+    const users = Array.from(usersMap.values());
     res.status(200).json({ success: true, users });
   } catch (error) {
     res.status(200).json({ success: true, users: [] });
@@ -1294,8 +1489,8 @@ app.get('/api/sync/diagnose', async (req, res) => {
 app.get('/api/items', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
 
     let queryResult;
     // Try with org_id first (full schema)
@@ -1329,24 +1524,28 @@ app.get('/api/items', async (req, res) => {
  */
 app.post('/api/sync/books', async (req, res) => {
   console.log('[SYNC] POST /api/sync/books hit');
-  console.log('[SYNC] Headers:', JSON.stringify({
-    refreshToken: req.header('x-zoho-refresh-token') ? 'SET' : 'MISSING',
-    orgId: req.header('x-zoho-org-id') || 'MISSING',
-    dc: req.header('x-zoho-dc') || 'MISSING',
-    contentType: req.header('content-type') || 'MISSING',
-    userAgent: req.header('user-agent') ? 'SET' : 'MISSING'
-  }));
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    console.log('[SYNC] tenantConfig:', tenantConfig ? JSON.stringify({ orgId: tenantConfig.orgId, dc: tenantConfig.dc, hasRefresh: !!tenantConfig.refreshToken }) : 'NULL');
-    
-    if (!tenantConfig || !tenantConfig.orgId) {
-      return res.status(400).json({ success: false, error: 'No Zoho connection. Please reconnect first.' });
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    const orgId = tenantConfig.orgId;
-    const dc = tenantConfig.dc || 'US';
+    const { orgUser, org } = orgUserContext;
+    const posOrgId = orgUser.org_id;
+
+    const headerConfig = getTenantConfig(req);
+    const tenantConfig = {
+      ...headerConfig,
+      posOrgId: posOrgId,
+      orgId: headerConfig ? headerConfig.orgId : org.zoho_books_org_id,
+      dc: headerConfig ? headerConfig.dc : 'com'
+    };
+
+    console.log('[SYNC] Resolved multi-tenant configuration:', JSON.stringify({ posOrgId: tenantConfig.posOrgId, orgId: tenantConfig.orgId, dc: tenantConfig.dc }));
+
+    const orgId = posOrgId;
+    const dc = tenantConfig.dc || 'com';
 
     let headers;
     try {
@@ -1545,9 +1744,23 @@ app.post('/api/sync/books', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    const { orgUser, org } = orgUserContext;
+    const posOrgId = orgUser.org_id;
+
+    const headerConfig = getTenantConfig(req);
+    const tenantConfig = {
+      ...headerConfig,
+      posOrgId: posOrgId,
+      orgId: headerConfig ? headerConfig.orgId : org.zoho_books_org_id,
+      dc: headerConfig ? headerConfig.dc : 'com'
+    };
     const booksService = new ZohoBooksService(catalystApp, tenantConfig);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgId = posOrgId;
 
     const {
       customer_name,
@@ -1685,15 +1898,11 @@ app.post('/api/orders', async (req, res) => {
 app.get('/api/orders', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
 
     let query = 'SELECT ROWID, customer_name, customer_email, subtotal, tax_amount, total, payment_mode, status, books_invoice_id, invoice_number, local_ref, created_time FROM Orders';
-    if (orgId) {
-      query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
-    } else {
-      query += " WHERE org_id IS NULL OR org_id = ''";
-    }
+    query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
     query += ' ORDER BY created_time DESC LIMIT 100';
 
     const queryResult = await catalystApp.zcql().executeZCQLQuery(query);
@@ -1716,17 +1925,22 @@ app.get('/api/orders', async (req, res) => {
 app.post('/api/items', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    const { orgUser } = orgUserContext;
+    const orgId = orgUser.org_id;
     const { name, sku, rate, stock, category, tax_percentage, books_item_id } = req.body;
 
     if (!name || !sku) {
       return res.status(400).json({ success: false, error: 'Name and SKU are required.' });
     }
 
-    // Check duplicate SKU
+    // Check duplicate SKU within the current tenant organization
     const existing = await safeZcql(catalystApp,
-      `SELECT ROWID FROM Items WHERE sku = '${sanitizeZcql(sku)}'`
+      `SELECT ROWID FROM Items WHERE sku = '${sanitizeZcql(sku)}' AND org_id = '${sanitizeZcql(orgId)}'`
     );
     if (existing && existing.length > 0) {
       return res.status(409).json({ success: false, error: `SKU '${sku}' already exists.` });
@@ -1902,20 +2116,39 @@ app.post('/api/contacts', async (req, res) => {
 app.get('/api/config/settings', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const result = await safeZcql(catalystApp,
-      `SELECT config_key, config_value FROM Configurations WHERE config_key = 'pos_system_settings'`
-    );
-
-    if (result && result.length > 0) {
-      try {
-        const settings = JSON.parse(result[0].Configurations.config_value);
-        return res.status(200).json({ success: true, settings });
-      } catch (e) {
-        // Malformed JSON — fall through to return empty
-      }
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    res.status(200).json({ success: true, settings: {} });
+    const { orgUser } = orgUserContext;
+    const orgId = orgUser.org_id;
+    const prefix = `org_${orgId}_setting_`;
+
+    let result = await safeZcql(catalystApp,
+      `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE '${prefix}%'`
+    );
+
+    // Backward compatibility fallback for virtual tenant
+    if ((!result || result.length === 0) && orgId === 'org_default') {
+      result = await safeZcql(catalystApp,
+        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'pos_setting_%'`
+      );
+    }
+
+    const settings = {};
+    if (result && result.length > 0) {
+      result.forEach(row => {
+        const key = row.Configurations.config_key.replace(row.Configurations.config_key.startsWith(prefix) ? prefix : 'pos_setting_', '');
+        let val = row.Configurations.config_value;
+        if (val === 'true') val = true;
+        else if (val === 'false') val = false;
+        else if (!isNaN(val) && val !== '') val = Number(val);
+        settings[key] = val;
+      });
+    }
+
+    res.status(200).json({ success: true, settings });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -1933,8 +2166,55 @@ app.post('/api/config/settings', async (req, res) => {
       return res.status(400).json({ success: false, error: 'settings object is required.' });
     }
 
-    await safeUpsertConfig(catalystApp, 'pos_system_settings', JSON.stringify(settings));
-    res.status(200).json({ success: true, message: 'Settings saved.' });
+    let orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    let { user, orgUser } = orgUserContext;
+    let orgId = orgUser.org_id;
+
+    // Check if we need to auto-create the organization and map user during onboarding.
+    // We do this if:
+    // 1. The user has no existing real mapping (i.e. currently mapped to fallback virtual 'org_default'), AND
+    // 2. We are saving onboarding data (e.g. store_name is present).
+    if (orgId === 'org_default' && settings.store_name) {
+      try {
+        console.log('[ONBOARDING] Initiating multi-tenant organization provisioning for user:', user.email);
+        const orgTable = catalystApp.datastore().table('Organizations');
+        const orgRow = await orgTable.insertRow({
+          org_name: settings.store_name,
+          industry: settings.industry || 'Retail',
+          master_admin_user_id: user.user_id,
+          zoho_books_org_id: '',
+          books_connected: 'false'
+        });
+        
+        orgId = String(orgRow.ROWID);
+        console.log('[ONBOARDING] Created Organizations row with ID:', orgId);
+
+        const orgUserTable = catalystApp.datastore().table('OrgUsers');
+        await orgUserTable.insertRow({
+          org_id: orgId,
+          user_id: user.user_id,
+          role: 'master_admin',
+          display_name: settings.name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+        });
+        console.log('[ONBOARDING] Created OrgUsers master_admin mapping for user_id:', user.user_id);
+      } catch (provisionErr) {
+        // If tables do not exist in the Catalyst datastore, we fall back to 'org_default'
+        console.warn('[ONBOARDING] Tables not yet created. Falling back to org_default configuration prefix.', provisionErr.message);
+        orgId = 'org_default';
+      }
+    }
+
+    // Save each setting as an isolated key prefixed with the tenant's ID
+    const prefix = `org_${orgId}_setting_`;
+    for (const [k, v] of Object.entries(settings)) {
+      await safeUpsertConfig(catalystApp, `${prefix}${k}`, String(v));
+    }
+    
+    res.status(200).json({ success: true, message: 'Settings saved.', org_id: orgId });
   } catch (error) {
     console.error('Error saving settings:', error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -1948,8 +2228,13 @@ app.post('/api/config/settings', async (req, res) => {
 app.post('/api/shifts/open', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    if (!orgUserContext) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    const { orgUser } = orgUserContext;
+    const orgId = orgUser.org_id;
     const { cashier_name, opening_float, open_notes } = req.body;
 
     if (!cashier_name || opening_float === undefined) {
@@ -2032,15 +2317,11 @@ app.post('/api/shifts/close', async (req, res) => {
 app.get('/api/shifts', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const tenantConfig = getTenantConfig(req);
-    const orgId = tenantConfig ? tenantConfig.orgId : '';
+    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
 
     let query = 'SELECT ROWID, cashier_name, opening_float, cash_sales, noncash_sales, expected_cash, actual_cash, variance, status, open_notes, close_notes, created_time FROM Shifts';
-    if (orgId) {
-      query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
-    } else {
-      query += " WHERE org_id IS NULL OR org_id = ''";
-    }
+    query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
     query += ' ORDER BY created_time DESC LIMIT 100';
 
     const result = await catalystApp.zcql().executeZCQLQuery(query);

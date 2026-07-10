@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log("Starting Catalyst Deploy Runner...");
+console.log("Starting Catalyst Datastore Deploy Runner...");
 
 const nodePaths = [
   path.join(__dirname, 'node18', 'node.exe'),
@@ -22,7 +22,9 @@ console.log(`[Runner] Selected node executable: ${nodeExecutable}`);
 
 const child = spawn(nodeExecutable, [
   path.join(__dirname, 'run_catalyst.js'),
-  'deploy'
+  'deploy',
+  '--only',
+  'datastore'
 ], {
   cwd: __dirname,
   env: process.env
@@ -33,7 +35,7 @@ child.stdout.on('data', (data) => {
   process.stdout.write(output);
   
   // Look for prompts
-  if (output.includes('?') || output.includes('Do you want to deploy') || output.includes('components') || output.includes('Y/n')) {
+  if (output.includes('?') || output.includes('Do you want to deploy') || output.includes('components') || output.includes('Y/n') || output.includes('proceed')) {
     console.log("\n[Runner] Prompt detected! Sending 'y'...");
     try {
       child.stdin.write('y\r\n');

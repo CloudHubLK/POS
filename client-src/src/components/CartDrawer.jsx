@@ -5,7 +5,30 @@ import { useAppState } from '../state/AppState.jsx';
 import { api } from '../api/client.js';
 
 export default function CartDrawer() {
-  const { cart, updateCartQty, clearCart, cartTotal, showToast } = useAppState();
+  const { cart, updateCartQty, clearCart, cartTotal, showToast, posSettings } = useAppState();
+
+  const currencySymbol = posSettings?.currency_symbol || '$';
+  const taxEnabled = posSettings?.tax_enabled || false;
+  const taxRatePercent = Number(posSettings?.tax_rate || 0);
+  const taxName = posSettings?.tax_name || 'Sales Tax';
+  const isTaxInclusive = posSettings?.tax_inclusive || false;
+
+  let subtotal = cartTotal;
+  let taxAmount = 0;
+  let finalTotal = cartTotal;
+
+  if (taxEnabled && taxRatePercent > 0) {
+    const rate = taxRatePercent / 100;
+    if (isTaxInclusive) {
+      subtotal = cartTotal / (1 + rate);
+      taxAmount = cartTotal - subtotal;
+      finalTotal = cartTotal;
+    } else {
+      subtotal = cartTotal;
+      taxAmount = cartTotal * rate;
+      finalTotal = cartTotal + taxAmount;
+    }
+  }
 
   async function checkout() {
     if (cart.length === 0) return;
@@ -13,10 +36,10 @@ export default function CartDrawer() {
       const res = await api.createOrder({
         customer_name: 'Walk-in Customer',
         items: cart.map((c) => ({ sku: c.sku, name: c.name, rate: c.rate, qty: c.qty })),
-        subtotal: cartTotal,
-        tax_amount: 0,
-        total: cartTotal,
-        payment_mode: 'Cash'
+        subtotal: parseFloat(subtotal.toFixed(2)),
+        tax_amount: parseFloat(taxAmount.toFixed(2)),
+        total: parseFloat(finalTotal.toFixed(2)),
+        payment_mode: posSettings?.payment_mode || 'Cash'
       });
       if (!res || !res.success) throw new Error(res?.error || 'Checkout failed');
       showToast('Order completed and synced');
@@ -55,7 +78,7 @@ export default function CartDrawer() {
               <div className="flex justify-between items-start gap-2">
                 <span className="text-sm text-paper font-medium leading-tight">{item.name}</span>
                 <span className="font-mono text-brass-400 text-sm whitespace-nowrap">
-                  ${(item.rate * item.qty).toFixed(2)}
+                  {currencySymbol}{(item.rate * item.qty).toFixed(2)}
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-2">
@@ -84,10 +107,20 @@ export default function CartDrawer() {
         </AnimatePresence>
       </div>
 
-      <div className="px-5 py-5 border-t border-counter-700/60">
-        <div className="flex justify-between text-sm text-counter-600 mb-1">
+      <div className="px-5 py-5 border-t border-counter-700/60 space-y-2">
+        <div className="flex justify-between text-sm text-counter-600">
+          <span>Subtotal</span>
+          <span className="font-mono text-paper">{currencySymbol}{subtotal.toFixed(2)}</span>
+        </div>
+        {taxEnabled && taxRatePercent > 0 && (
+          <div className="flex justify-between text-sm text-counter-600">
+            <span>{taxName} ({taxRatePercent}%) {isTaxInclusive ? 'Incl.' : ''}</span>
+            <span className="font-mono text-paper">{currencySymbol}{taxAmount.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-sm font-semibold text-paper pt-1 border-t border-counter-700/20">
           <span>Total</span>
-          <span className="font-mono text-paper text-lg">${cartTotal.toFixed(2)}</span>
+          <span className="font-mono text-lg text-brass-500">{currencySymbol}{finalTotal.toFixed(2)}</span>
         </div>
         <button
           onClick={checkout}
@@ -95,7 +128,7 @@ export default function CartDrawer() {
           className="focus-ring w-full mt-3 py-3 rounded-xl bg-mint text-counter-950 font-semibold
                      hover:brightness-95 transition disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          Charge ${cartTotal.toFixed(2)}
+          Charge {currencySymbol}{finalTotal.toFixed(2)}
         </button>
       </div>
     </motion.aside>

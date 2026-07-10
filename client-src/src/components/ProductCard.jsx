@@ -1,9 +1,12 @@
 import React, { useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useAppState } from '../state/AppState.jsx';
 
 // Signature interaction: cards tilt toward the cursor like you're picking a real
 // item up off a counter, then settle flat. Kept subtle — a few degrees, not a gimmick.
-export default function ProductCard({ item, onAdd, currencySymbol = '$' }) {
+export default function ProductCard({ item, onAdd }) {
+  const { posSettings } = useAppState();
+  const currencySymbol = posSettings?.currency_symbol || '$';
   const ref = useRef(null);
 
   function handleMouseMove(e) {

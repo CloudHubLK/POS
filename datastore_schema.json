@@ -66,6 +66,27 @@
         { "name": "config_key", "type": "Text", "max_length": 100, "is_mandatory": true, "is_unique": true },
         { "name": "config_value", "type": "Text", "max_length": 1000 }
       ]
+    },
+    {
+      "name": "Organizations",
+      "description": "Stores details of the registered POS organizations (SaaS tenants).",
+      "columns": [
+        { "name": "org_name", "type": "Text", "max_length": 255, "is_mandatory": true },
+        { "name": "industry", "type": "Text", "max_length": 100 },
+        { "name": "master_admin_user_id", "type": "Text", "max_length": 100 },
+        { "name": "zoho_books_org_id", "type": "Text", "max_length": 100 },
+        { "name": "books_connected", "type": "Text", "max_length": 10 }
+      ]
+    },
+    {
+      "name": "OrgUsers",
+      "description": "Roster of staff members mapped to their specific POS organizations.",
+      "columns": [
+        { "name": "org_id", "type": "Text", "max_length": 100, "is_mandatory": true },
+        { "name": "user_id", "type": "Text", "max_length": 100, "is_mandatory": true },
+        { "name": "role", "type": "Text", "max_length": 50, "is_mandatory": true },
+        { "name": "display_name", "type": "Text", "max_length": 255 }
+      ]
     }
   ]
 }

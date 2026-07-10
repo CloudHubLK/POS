@@ -10,14 +10,19 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
+      '/server': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/__catalyst': {
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
         changeOrigin: true
       }
     }
   },
   build: {
-    outDir: 'dist',
+    outDir: '../client',
+    emptyOutDir: true,
     sourcemap: false
   }
 });

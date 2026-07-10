@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log("Starting Catalyst Deploy Runner...");
+console.log("Starting Catalyst Client Deployer...");
 
 const nodePaths = [
   path.join(__dirname, 'node18', 'node.exe'),
@@ -22,7 +22,9 @@ console.log(`[Runner] Selected node executable: ${nodeExecutable}`);
 
 const child = spawn(nodeExecutable, [
   path.join(__dirname, 'run_catalyst.js'),
-  'deploy'
+  'deploy',
+  '--only',
+  'client'
 ], {
   cwd: __dirname,
   env: process.env
@@ -32,7 +34,6 @@ child.stdout.on('data', (data) => {
   const output = data.toString();
   process.stdout.write(output);
   
-  // Look for prompts
   if (output.includes('?') || output.includes('Do you want to deploy') || output.includes('components') || output.includes('Y/n')) {
     console.log("\n[Runner] Prompt detected! Sending 'y'...");
     try {
@@ -52,7 +53,6 @@ child.on('close', (code) => {
   process.exit(code);
 });
 
-// Fallback: send y after 8 seconds in case the prompt was printed differently
 setTimeout(() => {
   console.log("[Runner] Sending fallback 'y'...");
   try {
@@ -60,4 +60,4 @@ setTimeout(() => {
   } catch (e) {
     // Ignore
   }
-}, 8000);
+}, 5000);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ScanLine, Package, Users, ReceiptText, Settings, CloudCog } from 'lucide-react';
+import { LayoutDashboard, ScanLine, Package, Users, ReceiptText, Settings, CloudCog, LogOut, Users2 } from 'lucide-react';
 import { useAppState } from '../state/AppState.jsx';
 
 const NAV = [
@@ -13,7 +13,14 @@ const NAV = [
 ];
 
 export default function Sidebar() {
-  const { connection } = useAppState();
+  const { connection, forceLogout, user } = useAppState();
+
+  // Dynamic NAV: only show Staff Management if Admin or Manager role is present
+  const isManagerOrAdmin = user?.role === 'Admin' || user?.role === 'Manager' || user?.permissions?.includes('admin_settings');
+  const activeNav = [
+    ...NAV,
+    ...(isManagerOrAdmin ? [{ to: '/users', label: 'Staff Roster', icon: Users2 }] : [])
+  ];
 
   return (
     <aside className="w-60 shrink-0 h-full bg-counter-900 border-r border-counter-700/60
@@ -27,7 +34,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 space-y-1">
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {activeNav.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -45,13 +52,20 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-4 py-4 mx-3 mb-4 rounded-xl bg-counter-800 border border-counter-700/60">
+      <div className="px-4 py-4 mx-3 mb-4 rounded-xl bg-counter-800 border border-counter-700/60 flex flex-col gap-3">
         <div className="flex items-center gap-2 text-xs font-mono">
           <CloudCog size={14} className={connection ? 'text-mint' : 'text-counter-600'} />
-          <span className={connection ? 'text-mint' : 'text-counter-600'}>
+          <span className={connection ? 'text-mint font-medium' : 'text-counter-600'}>
             {connection ? `${connection.orgName || 'Zoho Books'}` : 'Books: not connected'}
           </span>
         </div>
+        <button
+          onClick={forceLogout}
+          className="flex items-center gap-2 text-xs text-rose-400 hover:text-rose-300 font-semibold font-sans cursor-pointer transition-colors w-full text-left"
+        >
+          <LogOut size={13} />
+          <span>Sign Out</span>
+        </button>
       </div>
     </aside>
   );

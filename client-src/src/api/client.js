@@ -2,28 +2,35 @@
 // no contract changes. Tenant headers are attached the same way the old client did,
 // read from the same localStorage key, so a rollback never strands you mid-migration.
 
+// Backend runs at /server/pos_backend — always use absolute path from host root.
+const API_BASE = '/server/pos_backend';
+
 function getTenantHeaders() {
   const raw = localStorage.getItem('zoho_active_connection');
   if (!raw) return {};
   try {
     const conn = JSON.parse(raw);
-    return {
-      'x-org-id': conn.orgId || '',
-      'x-org-email': conn.email || ''
-    };
+    const headers = {};
+    if (conn.refreshToken) headers['x-zoho-refresh-token'] = conn.refreshToken;
+    if (conn.orgId)        headers['x-zoho-org-id']        = conn.orgId;
+    if (conn.dc)           headers['x-zoho-dc']             = conn.dc;
+    return headers;
   } catch {
     return {};
   }
 }
 
 export async function callApi(endpoint, method = 'GET', body = null) {
-  const res = await fetch(endpoint, {
+  const url = `${API_BASE}${endpoint}`;
+  const res = await fetch(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...getTenantHeaders()
     },
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? JSON.stringify(body) : undefined,
+    // Always send credentials so the Catalyst session cookie is included.
+    credentials: 'include'
   });
 
   let data;
@@ -32,8 +39,11 @@ export async function callApi(endpoint, method = 'GET', body = null) {
   } catch {
     throw new Error(`Server returned a non-JSON response (status ${res.status})`);
   }
-  if (!res.ok && !data) {
-    throw new Error(`Request failed with status ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data?.error || `Request failed with status ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
 }
@@ -72,7 +82,8 @@ export const api = {
   updateUserRole: (payload) => callApi('/api/users/update-role', 'POST', payload),
 
   settings: () => callApi('/api/config/settings'),
-  saveSettings: (payload) => callApi('/api/config/settings', 'POST', payload),
+  saveSettings: (payload) => callApi('/api/config/settings', 'POST', { settings: payload }),
+  saveMasterCredentials: (payload) => callApi('/api/auth/save-master-credentials', 'POST', payload),
 
   openShift: (payload) => callApi('/api/shifts/open', 'POST', payload),
   closeShift: (payload) => callApi('/api/shifts/close', 'POST', payload),
