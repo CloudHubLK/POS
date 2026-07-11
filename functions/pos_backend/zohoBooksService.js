@@ -1,10 +1,10 @@
 const axios = require('axios');
 
-// Fallback credentials — must be configured via Catalyst Environment Variables.
-// Never hardcode credentials in source code.
+// Master developer credentials come ONLY from Catalyst Environment Variables.
+// There is no hardcoded fallback — a committed secret is already compromised.
 const FALLBACK_MASTER_CREDENTIALS = {
-  client_id: process.env.ZOHO_CLIENT_ID || '1000.LJHGWKVRX6WJDTB4MDO7B0NQ3GZ4UR',
-  client_secret: process.env.ZOHO_CLIENT_SECRET || 'd7800a427101467e28dacef9d688e47f03266f343d',
+  client_id: process.env.ZOHO_CLIENT_ID || '',
+  client_secret: process.env.ZOHO_CLIENT_SECRET || '',
   dc: process.env.ZOHO_DC || 'com'
 };
 

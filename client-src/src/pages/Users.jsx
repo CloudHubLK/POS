@@ -73,19 +73,24 @@ export default function Users() {
 
       if (res && res.success) {
         showToast(res.message || 'Invitation sent successfully!');
-        // Open the immediate verification modal so developer/merchant can instantly activate if SMTP isn't wired or for ease
+        // Open the verification modal so the invited staff member can type the
+        // 6-digit code that was emailed to them. The OTP is delivered by email
+        // only — the backend no longer returns it to the caller (that was a
+        //security hole). If SMTP isn't configured, the invitee is staged as
+        // pending until an admin configures email delivery.
+        if (res.warning === 'smtp_not_configured') {
+          showToast('Email delivery is not configured — the invitee is staged as pending. Configure SMTP in Settings to send codes.', true);
+        }
         setVerificationModal({
           email: inviteEmail.trim(),
-          name: inviteName.trim(),
-          otpCode: res.otp, // The backend passes back OTP for developer fallbacks!
-          verifyToken: res.verifyToken
+          name: inviteName.trim()
         });
-        
+
         // Clear inputs
         setInviteName('');
         setInviteEmail('');
         setInviteEmailRole('Cashier');
-        
+
         // Refresh users roster in background
         fetchUsers(true);
       } else {

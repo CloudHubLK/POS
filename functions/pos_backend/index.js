@@ -9,12 +9,14 @@ app.use(express.json());
 
 /* ==========================================================================
    SAAS MASTER DEVELOPER CREDENTIALS
-   All values MUST be set via Catalyst Environment Variables.
-   Never hardcode secrets in source code.
+   These MUST be set via Catalyst Environment Variables (ZOHO_CLIENT_ID,
+   ZOHO_CLIENT_SECRET, ZOHO_DC). There is no hardcoded fallback — if the env
+   vars are absent, OAuth flows will fail loudly rather than silently using a
+   secret that was committed to source.
    ========================================================================== */
 const SAAS_MASTER_CREDENTIALS = {
-  client_id: process.env.ZOHO_CLIENT_ID || '1000.LJHGWKVRX6WJDTB4MDO7B0NQ3GZ4UR',
-  client_secret: process.env.ZOHO_CLIENT_SECRET || 'd7800a427101467e28dacef9d688e47f03266f343d',
+  client_id: process.env.ZOHO_CLIENT_ID || '',
+  client_secret: process.env.ZOHO_CLIENT_SECRET || '',
   dc: process.env.ZOHO_DC || 'com'
 };
 
@@ -206,17 +208,31 @@ function verifyOtpToken(token, email, otp) {
   }
 }
 
-// Enable CORS — restrict to Catalyst domain in production.
-// CATALYST_APP_DOMAIN should be set e.g. "https://your-app.catalyst.zoho.com"
-const ALLOWED_ORIGIN = process.env.CATALYST_APP_DOMAIN || '*';
+// CORS — never emit a bare '*' with credentials in play (the client sends
+// credentials:'include', and a reflected '*' would let any origin call the
+// API under the user's Catalyst session). CATALYST_APP_DOMAIN should be set
+// to your app URL, e.g. "https://pos-914406080.development.catalystserverless.com".
+// If it's unset we restrict to known Catalyst hosting suffixes only.
+const ALLOWED_ORIGIN = process.env.CATALYST_APP_DOMAIN || '';
+const CATALYST_SUFFIXES = ['.catalyst.zoho.com', '.catalystserverless.com'];
+function isCatalystOrigin(o) {
+  if (!o) return false;
+  try { const host = new URL(o).hostname; return CATALYST_SUFFIXES.some((s) => host.endsWith(s)); }
+  catch (e) { return false; }
+}
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (ALLOWED_ORIGIN === '*') {
-    res.header('Access-Control-Allow-Origin', '*');
-  } else if (origin && (origin === ALLOWED_ORIGIN || origin.endsWith('.catalyst.zoho.com'))) {
+  if (ALLOWED_ORIGIN) {
+    if (origin === ALLOWED_ORIGIN) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+    }
+  } else if (origin && isCatalystOrigin(origin)) {
+    // Unconfigured: only same-Catalyst-host origins, never arbitrary ones.
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
+  res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-zoho-refresh-token, x-zoho-org-id, x-zoho-dc');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') {
@@ -249,72 +265,115 @@ function getTenantConfig(req) {
 }
 
 /**
- * Resolves the current Catalyst user, and returns their OrgUsers and Organizations row if tables exist.
- * Otherwise, falls back gracefully to a default organization 'org_default' (virtual single-tenant).
+ * Resolves the current Catalyst user together with their OrgUsers/Organizations
+ * rows. Does NOT fabricate an org or role for unmapped users — that previously
+ * promoted any un-onboarded Catalyst user to Admin over a shared virtual org
+ * ("org_default"), which broke tenant isolation entirely.
+ *
+ * Returns one of three explicit states so callers can react precisely:
+ *   { status: 'unauthenticated' }                          — no Catalyst session
+ *   { status: 'unmapped', user }                            — logged in, not yet on an org (drive onboarding)
+ *   { status: 'mapped', user, orgUser, org }               — fully resolved tenant context
+ *
+ * Pass { allowUnmapped: true } for routes that legitimately serve un-onboarded
+ * users (auth/me, onboarding itself). Business routes should use requireOrg()
+ * instead, which rejects both unauthenticated and unmapped callers.
  */
-async function getCurrentOrgUser(req, catalystApp) {
+async function getCurrentOrgUser(req, catalystApp, { allowUnmapped = false } = {}) {
   let user = null;
   try {
     user = await catalystApp.userManagement().getCurrentUser();
   } catch (err) {
-    return null;
+    return { status: 'unauthenticated' };
   }
 
-  if (!user || !user.email) return null;
+  if (!user || !user.email || !user.user_id) return { status: 'unauthenticated' };
 
   const safeUserId = sanitizeZcql(user.user_id);
 
-  // Try querying OrgUsers and Organizations tables
+  // Resolve the caller's active org membership.
   try {
-    const orgUserRows = await safeZcql(catalystApp, 
+    const orgUserRows = await safeZcql(catalystApp,
       `SELECT org_id, role, display_name FROM OrgUsers WHERE user_id = '${safeUserId}'`
     );
 
     if (orgUserRows && orgUserRows.length > 0) {
       const orgUser = orgUserRows[0].OrgUsers;
       const safeOrgId = sanitizeZcql(orgUser.org_id);
-      
-      const orgRows = await safeZcql(catalystApp, 
+
+      const orgRows = await safeZcql(catalystApp,
         `SELECT org_name, industry, zoho_books_org_id, books_connected FROM Organizations WHERE ROWID = '${safeOrgId}'`
       );
 
-      const org = (orgRows && orgRows.length > 0) ? orgRows[0].Organizations : {
-        org_name: 'My Store',
-        industry: 'Retail',
-        zoho_books_org_id: '',
-        books_connected: 'false'
-      };
-
-      return { user, orgUser, org };
+      // An OrgUsers row pointing at a missing Organizations row is corrupt data,
+      // not a reason to invent a virtual org. Treat it as unmapped.
+      if (orgRows && orgRows.length > 0) {
+        return { status: 'mapped', user, orgUser, org: orgRows[0].Organizations };
+      }
+      return { status: 'unmapped', user };
     }
   } catch (err) {
     const isMissingTable = err.message && (err.message.includes('No such Table') || err.message.includes('No such column'));
     if (isMissingTable) {
-      console.warn('[getCurrentOrgUser] Organizations/OrgUsers table or column missing, using Configurations fallback');
+      console.warn('[getCurrentOrgUser] Organizations/OrgUsers table or column missing — treat caller as unmapped (tables not provisioned yet).');
     } else {
       console.error('[getCurrentOrgUser] Query error:', err.message);
     }
   }
 
-  // Fallback mode if tables don't exist or user is not mapped yet.
-  // We check Configurations to see if they are already considered onboarded.
-  // This maintains absolute compatibility during table migration.
-  const fallbackOrgId = 'org_default';
-  const virtualOrgUser = {
-    org_id: fallbackOrgId,
-    user_id: user.user_id,
-    role: 'Admin', // First/sole user behaves as Admin
-    display_name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
-  };
+  // Authenticated Catalyst user with no OrgUsers row → needs onboarding.
+  // We do NOT grant Admin over a shared org here.
+  if (allowUnmapped) {
+    return { status: 'unmapped', user };
+  }
+  return { status: 'unmapped', user };
+}
 
-  const virtualOrg = {
-    org_name: 'CloudHub POS',
-    industry: 'Retail',
-    zoho_books_org_id: '',
-    books_connected: 'false'
-  };
 
-  return { user, orgUser: virtualOrgUser, org: virtualOrg };
+/**
+ * requireOrg — middleware-style guard for business routes.
+ * Resolves the caller and returns the tenant context { user, orgUser, org },
+ * or sends an appropriate error response:
+ *   401 unauthenticated (no Catalyst session)
+ *   403 unmapped (logged in but not onboarded onto an org)
+ * Returns null when it has already sent a response, so handlers can do:
+ *   const ctx = await requireOrg(req, res); if (!ctx) return;
+ */
+async function requireOrg(req, res) {
+  let catalystApp;
+  try {
+    catalystApp = catalyst.initialize(req);
+  } catch (e) {
+    res.status(401).json({ success: false, error: 'Not authenticated', authenticated: false });
+    return null;
+  }
+  const ctx = await getCurrentOrgUser(req, catalystApp);
+  if (ctx.status === 'unauthenticated') {
+    res.status(401).json({ success: false, error: 'Not authenticated', authenticated: false });
+    return null;
+  }
+  if (ctx.status === 'unmapped') {
+    res.status(403).json({ success: false, error: 'User is not onboarded onto an organization.', needs_onboarding: true, authenticated: true });
+    return null;
+  }
+  return { catalystApp, user: ctx.user, orgUser: ctx.orgUser, org: ctx.org };
+}
+
+const ROLE_HIERARCHY = { master_admin: 3, Admin: 3, Manager: 2, Cashier: 1, Waiter: 1, Chef: 1 };
+
+/**
+ * requireRole — guards routes that need at least a given role tier.
+ * roleTier: 'Admin' (master_admin/Admin), 'Manager' (Manager+), 'Cashier' (anyone).
+ */
+async function requireRole(req, res, minRole) {
+  const ctx = await requireOrg(req, res);
+  if (!ctx) return null;
+  const role = ctx.orgUser.role || 'Cashier';
+  if ((ROLE_HIERARCHY[role] || 0) < (ROLE_HIERARCHY[minRole] || 0)) {
+    res.status(403).json({ success: false, error: `This action requires the ${minRole} role or above.` });
+    return null;
+  }
+  return ctx;
 }
 
 
@@ -329,7 +388,9 @@ app.get('/api/health', (req, res) => {
  */
 app.post('/api/config/smtp', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp } = ctx;
     const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from } = req.body;
     if (!smtp_host || !smtp_user || !smtp_pass) {
       return res.status(400).json({ success: false, error: 'SMTP host, user, and password are required' });
@@ -352,7 +413,9 @@ app.post('/api/config/smtp', async (req, res) => {
  */
 app.get('/api/config/smtp', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Manager');
+    if (!ctx) return;
+    const { catalystApp } = ctx;
     const booksService = new ZohoBooksService(catalystApp);
     const host = await booksService.getConfig('email_smtp_host');
     const port = await booksService.getConfig('email_smtp_port');
@@ -492,7 +555,9 @@ app.get('/api/organizations', async (req, res) => {
  */
 app.post('/api/auth/save-master-credentials', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp } = ctx;
     const booksService = new ZohoBooksService(catalystApp);
     const { client_id, client_secret, dc } = req.body;
 
@@ -516,7 +581,9 @@ app.post('/api/auth/save-master-credentials', async (req, res) => {
  */
 app.post('/api/auth/seed-credentials', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp } = ctx;
     const booksService = new ZohoBooksService(catalystApp);
 
     // Check if already configured
@@ -547,20 +614,43 @@ app.post('/api/auth/seed-credentials', async (req, res) => {
 app.get('/api/auth/me', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
+    const ctx = await getCurrentOrgUser(req, catalystApp, { allowUnmapped: true });
 
-    if (!orgUserContext) {
+    if (ctx.status === 'unauthenticated') {
       return res.status(401).json({ success: false, error: 'Not authenticated', authenticated: false });
     }
 
-    const { user, orgUser, org } = orgUserContext;
+    // Authenticated Catalyst user with no org yet — the frontend drives onboarding.
+    if (ctx.status === 'unmapped') {
+      return res.json({
+        success: true,
+        email: ctx.user.email,
+        user_id: ctx.user.user_id,
+        authenticated: true,
+        onboarded: false,
+        needs_onboarding: true,
+        pos_user: {
+          email: ctx.user.email,
+          name: [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email,
+          role: 'master_admin', // first user of a new org becomes master_admin during onboarding
+          permissions: getRolePermissions('master_admin'),
+          status: 'pending_onboarding',
+          org_id: null,
+          org_name: '',
+          industry: '',
+          onboarded: false
+        }
+      });
+    }
+
+    const { user, orgUser, org } = ctx;
 
     // Load org-specific settings to see if they are onboarded
     const prefix = `org_${orgUser.org_id}_setting_`;
     const settingsRows = await safeZcql(catalystApp,
       `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE '${prefix}%'`
     );
-    
+
     const settings = {};
     if (settingsRows && settingsRows.length > 0) {
       settingsRows.forEach(row => {
@@ -569,24 +659,9 @@ app.get('/api/auth/me', async (req, res) => {
       });
     }
 
-    // A user is considered onboarded if:
-    // 1. Either settings.onboarded is 'true' or they have a customized store_name (not default)
-    let isOnboarded = settings.onboarded === 'true' || (settings.store_name && settings.store_name !== 'CloudHub POS');
-
-    // If we are in the fallback/virtual org_default tenant, check legacy global settings
-    if (orgUser.org_id === 'org_default' && !isOnboarded) {
-      const globalRows = await safeZcql(catalystApp,
-        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'pos_setting_%'`
-      );
-      const globalSettings = {};
-      if (globalRows && globalRows.length > 0) {
-        globalRows.forEach(row => {
-          const key = row.Configurations.config_key.replace('pos_setting_', '');
-          globalSettings[key] = row.Configurations.config_value;
-        });
-      }
-      isOnboarded = globalSettings.onboarded === 'true' || (globalSettings.store_name && globalSettings.store_name !== 'CloudHub POS');
-    }
+    // A user is considered onboarded if settings.onboarded is 'true' or they
+    // have a customized (non-default) store_name.
+    const isOnboarded = settings.onboarded === 'true' || (settings.store_name && settings.store_name !== 'CloudHub POS');
 
     const posUser = {
       email: user.email,
@@ -595,8 +670,8 @@ app.get('/api/auth/me', async (req, res) => {
       permissions: getRolePermissions(orgUser.role || 'Cashier'),
       status: 'active',
       org_id: orgUser.org_id,
-      org_name: org ? org.org_name : 'CloudHub POS',
-      industry: org ? org.industry : 'Retail',
+      org_name: org ? org.org_name : '',
+      industry: org ? org.industry : '',
       onboarded: isOnboarded
     };
 
@@ -1012,13 +1087,47 @@ app.get('/api/auth/callback', async (req, res) => {
 
 /**
  * POST /api/auth/disconnect
- * Dynamic client session disconnection
+ * Disconnect this org's Zoho Books link: purge the per-org refresh token and
+ * related config, and clear the Organizations.books_connected flag. This org's
+ * tokens are kept entirely separate from every other tenant.
  */
 app.post('/api/auth/disconnect', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
+    const pfx = `zoho_refresh_token_${orgId}`;
+    const dcKey = `zoho_dc_${orgId}`;
+    const booksConnectedKey = `zoho_books_connected_${orgId}`;
+    const lastBooksOrgKey = `zoho_books_org_id_${orgId}`;
+
+    // Purge the per-org Books connection rows.
+    for (const key of [pfx, dcKey, booksConnectedKey, lastBooksOrgKey]) {
+      const rows = await safeZcql(catalystApp, `SELECT ROWID FROM Configurations WHERE config_key = '${sanitizeZcql(key)}'`);
+      if (rows && rows.length > 0) {
+        try { await catalystApp.datastore().table('Configurations').deleteRow(rows[0].Configurations.ROWID); } catch (e) {}
+      }
+    }
+    // The legacy shared last_connected_org pointer (multi-tenant unsafe) — clear too.
     await safeUpsertConfig(catalystApp, 'last_connected_org', '');
-    res.status(200).json({ success: true, message: 'Successfully disconnected Zoho session' });
+
+    // Flip the org record's books_connected flag.
+    try {
+      const orgRows = await safeZcql(catalystApp, `SELECT ROWID FROM Organizations WHERE ROWID = '${sanitizeZcql(orgId)}'`);
+      if (orgRows && orgRows.length > 0) {
+        await catalystApp.datastore().table('Organizations').updateRow({
+          ROWID: orgRows[0].Organizations.ROWID,
+          books_connected: 'false',
+          zoho_books_org_id: ''
+        });
+      }
+    } catch (e) {
+      console.warn('Could not clear Organizations books_connected:', e.message);
+    }
+
+    res.status(200).json({ success: true, message: 'Successfully disconnected Zoho Books for this organization' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -1034,7 +1143,11 @@ app.post('/api/auth/disconnect', async (req, res) => {
  */
 app.post('/api/users/invite', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Manager');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const { email, name, role } = req.body;
     if (!email || !name) {
       return res.status(400).json({ success: false, error: 'Email and name are required' });
@@ -1042,14 +1155,14 @@ app.post('/api/users/invite', async (req, res) => {
 
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpKey = `otp_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const userKey = `user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const otpKey = `org_${orgId}_otp_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const userKey = `org_${orgId}_user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
-    // Store OTP and user data
+    // Store OTP and user data, scoped to this tenant's org.
     const roleVal = role || 'Cashier';
-    const userPayload = { email, name, role: roleVal, permissions: getRolePermissions(roleVal), status: 'pending', invited_at: Date.now() };
+    const userPayload = { email, name, role: roleVal, org_id: orgId, permissions: getRolePermissions(roleVal), status: 'pending', invited_at: Date.now() };
     const otpData = JSON.stringify({ otp, ...userPayload });
-    const otpSaved = await safeUpsertConfig(catalystApp, otpKey, otpData);
+    await safeUpsertConfig(catalystApp, otpKey, otpData);
     await safeUpsertConfig(catalystApp, userKey, JSON.stringify(userPayload));
 
     // Ensure SMTP is seeded, then send OTP
@@ -1057,16 +1170,20 @@ app.post('/api/users/invite', async (req, res) => {
     await ensureMasterCredentials(booksSvc);
     const emailSent = await sendOtpEmail(booksSvc, email, otp, name);
 
-    const response = { 
-      success: true, 
-      expires_in: '15 minutes',
-      otp: otp,
-      verifyToken: createOtpToken(email, otp, 15, roleVal)
+    // The OTP is delivered ONLY by email — never returned to the caller. The old
+    // behavior leaked the OTP (and a signed verifyToken) in the response body,
+    // which let any caller bypass email delivery entirely.
+    const response = {
+      success: true,
+      expires_in: '15 minutes'
     };
     if (emailSent) {
       response.message = `Verification code sent to ${email}`;
     } else {
-      response.message = 'OTP generated (check the field below)';
+      // SMTP not configured — do NOT fall back to putting the OTP in the response.
+      // Surface this as a configuration problem for the admin instead.
+      response.message = 'Invitation staged, but email delivery is not configured. Configure SMTP to send verification codes.';
+      response.warning = 'smtp_not_configured';
     }
     res.status(200).json(response);
   } catch (error) {
@@ -1082,57 +1199,102 @@ app.post('/api/users/invite', async (req, res) => {
 app.post('/api/users/verify-otp', async (req, res) => {
   try {
     const catalystApp = catalyst.initialize(req);
-    const { email, otp, verifyToken, expectedOtp } = req.body;
+
+    // The user verifying must be a logged-in Catalyst user (the invited staff
+    // member signs in via Catalyst first, then enters the emailed code).
+    let currentUser = null;
+    try {
+      currentUser = await catalystApp.userManagement().getCurrentUser();
+    } catch (e) { /* not authenticated via Catalyst */ }
+    if (!currentUser || !currentUser.user_id) {
+      return res.status(401).json({ success: false, error: 'Sign in first, then enter your verification code.' });
+    }
+
+    const { email, otp } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ success: false, error: 'Email and OTP are required' });
     }
 
+    // Only accept an OTP keyed by an org prefix — and only for the email it was
+    // issued to. The legacy `expectedOtp === otp` dev backdoor and the signed
+    // verifyToken fallback are removed (the token carried the OTP that we no
+    // longer hand to callers, so it was useless and bypassable).
+    const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+    const otpRows = await safeZcql(catalystApp,
+      `SELECT ROWID, config_key, config_value FROM Configurations WHERE config_key LIKE 'org_%_otp_${escape(email)}'`
+    );
+
     let stored = null;
-
-    // 1. Try DB lookup
-    const otpKey = `otp_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const result = await safeZcql(catalystApp, `SELECT ROWID, config_value FROM Configurations WHERE config_key = '${otpKey}'`);
-    if (result && result.length > 0) {
+    let otpRowId = null;
+    if (otpRows && otpRows.length > 0) {
       try {
-        stored = JSON.parse(result[0].Configurations.config_value);
-      } catch (e) { /* ignore parse errors */ }
-    }
-
-    // 2. Try signed token fallback
-    if (!stored && verifyToken) {
-      const tokenData = verifyOtpToken(verifyToken, email, otp);
-      if (tokenData) {
-        stored = tokenData;
-      }
-    }
-
-    // 3. Try direct OTP match (dev fallback when DB and token fail)
-    if (!stored && expectedOtp && expectedOtp === otp) {
-      stored = { email, otp, role: req.body.expectedRole || 'Cashier' };
+        stored = JSON.parse(otpRows[0].Configurations.config_value);
+        otpRowId = otpRows[0].Configurations.ROWID;
+      } catch (e) { /* corrupt OTP row */ }
     }
 
     if (!stored) {
-      return res.status(400).json({ success: false, error: 'No OTP found. Please request a new one.' });
+      return res.status(400).json({ success: false, error: 'No verification code found. Ask your manager to invite you again.' });
     }
 
-    if (stored.otp !== otp) {
-      return res.status(400).json({ success: false, error: 'Invalid OTP. Please try again.' });
+    // Verify against the email that the code was actually issued to.
+    if (String(stored.otp) !== String(otp)) {
+      return res.status(400).json({ success: false, error: 'Invalid verification code. Please try again.' });
     }
 
-    // OTP valid — delete it so it cannot be reused
-    try {
-      const otpRowId = result && result.length > 0 ? result[0].Configurations.ROWID : null;
-      if (otpRowId) {
-        await catalystApp.datastore().table('Configurations').deleteRow(otpRowId);
+    // OTP valid — map this Catalyst user into the inviting org as a real OrgUsers row.
+    const orgId = stored.org_id;
+    const role = stored.role || 'Cashier';
+    const displayName = stored.name || email;
+
+    // Idempotent: if already mapped to this org, just keep existing role/row.
+    const existing = await safeZcql(catalystApp,
+      `SELECT ROWID FROM OrgUsers WHERE user_id = '${sanitizeZcql(currentUser.user_id)}' AND org_id = '${sanitizeZcql(orgId)}'`
+    );
+    if (!existing || existing.length === 0) {
+      try {
+        await catalystApp.datastore().table('OrgUsers').insertRow({
+          org_id: orgId,
+          user_id: currentUser.user_id,
+          role,
+          display_name: displayName
+        });
+      } catch (mapErr) {
+        console.error('Failed to create OrgUsers mapping after OTP verify:', mapErr.message);
+        return res.status(500).json({ success: false, error: 'Verified, but could not add you to the organization. Contact your manager.' });
       }
-    } catch (delErr) {
-      console.warn('Could not delete used OTP row:', delErr.message);
+    }
+
+    // Backfill the resolved Catalyst user_id into the legacy user-index row so
+    // admin delete/role-change can resolve email -> user_id later.
+    try {
+      const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+      const userKey = `org_${orgId}_user_${escape(email)}`;
+      const idxRows = await safeZcql(catalystApp, `SELECT ROWID, config_value FROM Configurations WHERE config_key = '${userKey}'`);
+      if (idxRows && idxRows.length > 0) {
+        const idx = JSON.parse(idxRows[0].Configurations.config_value);
+        idx.user_id = currentUser.user_id;
+        idx.status = 'active';
+        idx.verified_at = Date.now();
+        await safeUpsertConfig(catalystApp, userKey, JSON.stringify(idx));
+      }
+    } catch (idxErr) {
+      console.warn('Could not backfill user_id into legacy index:', idxErr.message);
+    }
+
+    // Delete the OTP row so it cannot be reused.
+    if (otpRowId) {
+      try {
+        await catalystApp.datastore().table('Configurations').deleteRow(otpRowId);
+      } catch (delErr) {
+        console.warn('Could not delete used OTP row:', delErr.message);
+      }
     }
 
     res.status(200).json({
       success: true,
       message: 'Account verified successfully!',
-      role: stored.role || 'Cashier'
+      role
     });
   } catch (error) {
     console.error('Error verifying OTP:', error.message);
@@ -1146,13 +1308,9 @@ app.post('/api/users/verify-otp', async (req, res) => {
  */
 app.get('/api/users', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { user, orgUser } = orgUserContext;
+    const ctx = await requireRole(req, res, 'Manager');
+    if (!ctx) return;
+    const { catalystApp, user, orgUser } = ctx;
     const orgId = orgUser.org_id;
 
     const usersMap = new Map();
@@ -1169,7 +1327,28 @@ app.get('/api/users', async (req, res) => {
     };
     usersMap.set(user.email.toLowerCase(), currentActiveUser);
 
-    // 2. Fetch other users from OrgUsers table for this tenant
+    // 2. Fetch other users from OrgUsers table for this tenant. OrgUsers.user_id
+    //    is a Catalyst user_id (a number), not an email — so we use the legacy
+    //    org-scoped index (org_<orgId>_user_<email>) to resolve each member's
+    //    email for display. Roster is bounded to this tenant by the WHERE clause.
+    const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+    const indexByUserId = new Map();
+    try {
+      const idxRows = await safeZcql(catalystApp,
+        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'org_${sanitizeZcql(orgId)}_user_%'`
+      );
+      if (idxRows && idxRows.length > 0) {
+        for (const row of idxRows) {
+          try {
+            const u = JSON.parse(row.Configurations.config_value);
+            if (u && u.user_id) indexByUserId.set(String(u.user_id), u);
+          } catch (e) { /* corrupt index row */ }
+        }
+      }
+    } catch (err) {
+      console.warn('[GET /api/users] Legacy index query failed:', err.message);
+    }
+
     try {
       const orgUsersRows = await safeZcql(catalystApp,
         `SELECT user_id, role, display_name FROM OrgUsers WHERE org_id = '${sanitizeZcql(orgId)}'`
@@ -1177,50 +1356,43 @@ app.get('/api/users', async (req, res) => {
       if (orgUsersRows && orgUsersRows.length > 0) {
         for (const row of orgUsersRows) {
           const item = row.OrgUsers;
-          const userEmail = item.user_id; // Store email or user_id
+          const idx = indexByUserId.get(String(item.user_id)) || {};
+          const userEmail = idx.email || item.display_name || item.user_id;
           const userRole = item.role === 'master_admin' ? 'Admin' : (item.role || 'Cashier');
-          
-          if (!usersMap.has(userEmail.toLowerCase())) {
-            usersMap.set(userEmail.toLowerCase(), {
+
+          if (!usersMap.has(String(userEmail).toLowerCase())) {
+            usersMap.set(String(userEmail).toLowerCase(), {
               email: userEmail,
-              name: item.display_name || userEmail,
+              user_id: item.user_id,
+              name: item.display_name || (idx.name) || userEmail,
               role: userRole,
               permissions: getRolePermissions(userRole),
-              status: 'active',
-              invited_at: Date.now(),
-              verified_at: Date.now()
+              status: idx.status || 'active',
+              invited_at: idx.invited_at || Date.now(),
+              verified_at: idx.verified_at
             });
           }
         }
       }
     } catch (err) {
-      // If table doesn't exist, fallback to reading Configurations
-      console.warn('[GET /api/users] OrgUsers query failed, falling back to legacy Configurations', err.message);
+      // OrgUsers table missing — roster is the legacy index only.
+      console.warn('[GET /api/users] OrgUsers query failed, using legacy index only', err.message);
     }
 
-    // 3. Fallback/compatibility: Fetch any user keys from Configurations
-    try {
-      const configUsers = await safeZcql(catalystApp, 
-        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'user_%'`
-      );
-      if (configUsers && configUsers.length > 0) {
-        configUsers.forEach(row => {
-          if (row.Configurations.config_value !== 'used') {
-            try {
-              const u = JSON.parse(row.Configurations.config_value);
-              if (u && u.email && !usersMap.has(u.email.toLowerCase())) {
-                usersMap.set(u.email.toLowerCase(), {
-                  ...u,
-                  role: u.role === 'master_admin' ? 'Admin' : (u.role || 'Cashier'),
-                  permissions: getRolePermissions(u.role)
-                });
-              }
-            } catch (e) { /* ignore parse errors */ }
-          }
+    // 3. Add any pending invitees present in the legacy index but not yet
+    //    verified (no OrgUsers row yet). Scoped to this org's prefix only.
+    for (const [userId, u] of indexByUserId.entries()) {
+      if (u.email && u.status !== 'active' && !usersMap.has(String(u.email).toLowerCase())) {
+        usersMap.set(String(u.email).toLowerCase(), {
+          email: u.email,
+          user_id: u.user_id || null,
+          name: u.name || u.email,
+          role: u.role === 'master_admin' ? 'Admin' : (u.role || 'Cashier'),
+          permissions: getRolePermissions(u.role),
+          status: 'pending',
+          invited_at: u.invited_at || Date.now()
         });
       }
-    } catch (configErr) {
-      console.warn('[GET /api/users] Legacy config query failed:', configErr.message);
     }
 
     const users = Array.from(usersMap.values());
@@ -1243,20 +1415,31 @@ app.post('/api/users/login', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email and OTP required' });
     }
 
-    const otpKey = `otp_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const result = await safeZcql(catalystApp, `SELECT ROWID, config_value FROM Configurations WHERE config_key = '${otpKey}'`);
-
-    if (!result || result.length === 0) {
-      return res.status(400).json({ success: false, error: 'No OTP found. Please request login OTP first.' });
+    // Resolve the caller's Catalyst session to scope the OTP lookup to their org.
+    let currentUser = null;
+    try { currentUser = await catalystApp.userManagement().getCurrentUser(); } catch (e) { /* unauthenticated */ }
+    if (!currentUser || !currentUser.email) {
+      return res.status(401).json({ success: false, error: 'Sign in via Catalyst first, then enter your login code.' });
     }
 
-    const stored = JSON.parse(result[0].Configurations.config_value);
-    if (stored.otp !== otp) {
-      return res.status(400).json({ success: false, error: 'Invalid OTP.' });
+    const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+    // Match OTP rows keyed per-org for this email.
+    const otpRows = await safeZcql(catalystApp,
+      `SELECT ROWID, config_key, config_value FROM Configurations WHERE config_key LIKE 'org_%_otp_${escape(email)}'`
+    );
+
+    if (!otpRows || otpRows.length === 0) {
+      return res.status(400).json({ success: false, error: 'No login code found. Ask your manager to invite you again.' });
+    }
+
+    let stored = null;
+    try { stored = JSON.parse(otpRows[0].Configurations.config_value); } catch (e) { /* corrupt */ }
+    if (!stored || String(stored.otp) !== String(otp)) {
+      return res.status(400).json({ success: false, error: 'Invalid login code.' });
     }
 
     // Delete used OTP
-    try { await catalystApp.datastore().table('Configurations').deleteRow(result[0].Configurations.ROWID); } catch (e) {}
+    try { await catalystApp.datastore().table('Configurations').deleteRow(otpRows[0].Configurations.ROWID); } catch (e) {}
 
     res.status(200).json({ success: true, message: 'Login successful', role: stored.role || 'Cashier', name: stored.name || email });
   } catch (error) {
@@ -1270,15 +1453,51 @@ app.post('/api/users/login', async (req, res) => {
  */
 app.post('/api/users/delete', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, error: 'Email required' });
 
-    const userKey = `user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const result = await safeZcql(catalystApp, `SELECT ROWID FROM Configurations WHERE config_key = '${userKey}'`);
-    if (result && result.length > 0) {
-      try { await catalystApp.datastore().table('Configurations').deleteRow(result[0].Configurations.ROWID); } catch (e) {}
+    const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+
+    // A master_admin cannot be removed (would orphan the org). Resolve the target's
+    // current role from the legacy config index before deleting.
+    const userKey = `org_${orgId}_user_${escape(email)}`;
+    const idxResult = await safeZcql(catalystApp, `SELECT ROWID, config_value FROM Configurations WHERE config_key = '${userKey}'`);
+    let targetRole = null;
+    let targetUserId = null;
+    if (idxResult && idxResult.length > 0) {
+      try {
+        const idx = JSON.parse(idxResult[0].Configurations.config_value);
+        targetRole = idx.role;
+        targetUserId = idx.user_id || null;
+      } catch (e) { /* corrupt index row */ }
     }
+    if (targetRole === 'master_admin' || targetRole === 'Admin') {
+      return res.status(403).json({ success: false, error: 'Cannot remove an Admin. Demote them first.' });
+    }
+
+    // Remove from the real OrgUsers roster (if we can resolve their user_id).
+    if (targetUserId) {
+      try {
+        const orgUserRows = await safeZcql(catalystApp,
+          `SELECT ROWID FROM OrgUsers WHERE user_id = '${sanitizeZcql(targetUserId)}' AND org_id = '${sanitizeZcql(orgId)}'`
+        );
+        if (orgUserRows && orgUserRows.length > 0) {
+          await catalystApp.datastore().table('OrgUsers').deleteRow(orgUserRows[0].OrgUsers.ROWID);
+        }
+      } catch (e) {
+        console.warn('Could not delete OrgUsers row:', e.message);
+      }
+    }
+    // Also remove the legacy config index row.
+    if (idxResult && idxResult.length > 0) {
+      try { await catalystApp.datastore().table('Configurations').deleteRow(idxResult[0].Configurations.ROWID); } catch (e) {}
+    }
+
     res.status(200).json({ success: true, message: 'User removed' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1291,7 +1510,10 @@ app.post('/api/users/delete', async (req, res) => {
  */
 app.post('/api/users/update-role', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
     const { email, role } = req.body;
     if (!email || !role) return res.status(400).json({ success: false, error: 'Email and role are required' });
 
@@ -1300,18 +1522,42 @@ app.post('/api/users/update-role', async (req, res) => {
       return res.status(400).json({ success: false, error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
     }
 
-    const userKey = `user_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const escape = (s) => String(s).replace(/[^a-zA-Z0-9]/g, '_');
+    const userKey = `org_${orgId}_user_${escape(email)}`;
     const result = await safeZcql(catalystApp, `SELECT ROWID, config_value FROM Configurations WHERE config_key = '${userKey}'`);
 
     if (!result || result.length === 0) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found in your organization' });
     }
 
-    const userData = JSON.parse(result[0].Configurations.config_value);
+    let userData;
+    try {
+      userData = JSON.parse(result[0].Configurations.config_value);
+    } catch (e) {
+      return res.status(500).json({ success: false, error: 'Corrupt user record.' });
+    }
     userData.role = role;
     userData.permissions = getRolePermissions(role);
     userData.updated_at = Date.now();
     await safeUpsertConfig(catalystApp, userKey, JSON.stringify(userData));
+
+    // Update the real OrgUsers row too (the old version never did, so a role
+    // change had no effect on actual permissions).
+    if (userData.user_id) {
+      try {
+        const orgUserRows = await safeZcql(catalystApp,
+          `SELECT ROWID FROM OrgUsers WHERE user_id = '${sanitizeZcql(userData.user_id)}' AND org_id = '${sanitizeZcql(orgId)}'`
+        );
+        if (orgUserRows && orgUserRows.length > 0) {
+          await catalystApp.datastore().table('OrgUsers').updateRow({
+            ROWID: orgUserRows[0].OrgUsers.ROWID,
+            role
+          });
+        }
+      } catch (e) {
+        console.warn('Could not update OrgUsers role row:', e.message);
+      }
+    }
 
     res.status(200).json({ success: true, message: `Role updated to ${role}`, user: userData });
   } catch (error) {
@@ -1488,9 +1734,10 @@ app.get('/api/sync/diagnose', async (req, res) => {
  */
 app.get('/api/items', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
 
     let queryResult;
     // Try with org_id first (full schema)
@@ -1503,11 +1750,10 @@ app.get('/api/items', async (req, res) => {
       }
       queryResult = await catalystApp.zcql().executeZCQLQuery(query);
     } catch (colErr) {
-      // org_id column missing — fetch ALL items (single-tenant fallback)
-      console.warn('org_id column not found, fetching all items:', colErr.message);
-      queryResult = await catalystApp.zcql().executeZCQLQuery(
-        'SELECT ROWID, books_item_id, name, rate, sku, tax_id, tax_percentage, stock, category FROM Items LIMIT 500'
-      );
+      // org_id column missing — fetch only this caller's items is impossible without
+      // the column, so fail closed rather than leak every org's catalog.
+      console.error('org_id column missing on Items — cannot scope by org, refusing to return all items:', colErr.message);
+      return res.status(500).json({ success: false, error: 'Items table is missing the org_id column. Run the datastore schema update before fetching items.' });
     }
 
     const items = queryResult.map(row => row.Items);
@@ -1525,13 +1771,9 @@ app.get('/api/items', async (req, res) => {
 app.post('/api/sync/books', async (req, res) => {
   console.log('[SYNC] POST /api/sync/books hit');
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { orgUser, org } = orgUserContext;
+    const ctx = await requireRole(req, res, 'Manager');
+    if (!ctx) return;
+    const { catalystApp, orgUser, org } = ctx;
     const posOrgId = orgUser.org_id;
 
     const headerConfig = getTenantConfig(req);
@@ -1743,13 +1985,9 @@ app.post('/api/sync/books', async (req, res) => {
  */
 app.post('/api/orders', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { orgUser, org } = orgUserContext;
+    const ctx = await requireRole(req, res, 'Cashier');
+    if (!ctx) return;
+    const { catalystApp, orgUser, org } = ctx;
     const posOrgId = orgUser.org_id;
 
     const headerConfig = getTenantConfig(req);
@@ -1897,9 +2135,10 @@ app.post('/api/orders', async (req, res) => {
  */
 app.get('/api/orders', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
 
     let query = 'SELECT ROWID, customer_name, customer_email, subtotal, tax_amount, total, payment_mode, status, books_invoice_id, invoice_number, local_ref, created_time FROM Orders';
     query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
@@ -1924,15 +2163,11 @@ app.get('/api/orders', async (req, res) => {
  */
 app.post('/api/items', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { orgUser } = orgUserContext;
+    const ctx = await requireRole(req, res, 'Cashier');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
     const orgId = orgUser.org_id;
-    const { name, sku, rate, stock, category, tax_percentage, books_item_id } = req.body;
+    const { name, sku, rate, stock, category, tax_percentage, books_item_id, tax_id } = req.body;
 
     if (!name || !sku) {
       return res.status(400).json({ success: false, error: 'Name and SKU are required.' });
@@ -1951,6 +2186,7 @@ app.post('/api/items', async (req, res) => {
       name,
       rate: parseFloat(rate) || 0,
       sku,
+      tax_id: tax_id || '',
       tax_percentage: parseFloat(tax_percentage) || 0,
       stock: parseFloat(stock) || 0,
       category: category || 'General',
@@ -1972,17 +2208,31 @@ app.post('/api/items', async (req, res) => {
  */
 app.put('/api/items/:id', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Cashier');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const rowId = parseInt(req.params.id);
     if (!rowId) return res.status(400).json({ success: false, error: 'Invalid item ID.' });
 
-    const { name, rate, stock, category, tax_percentage } = req.body;
+    // Verify the item belongs to the caller's org before mutating — prevents
+    // cross-tenant edits by ROWID.
+    const owned = await safeZcql(catalystApp,
+      `SELECT ROWID FROM Items WHERE ROWID = ${rowId} AND org_id = '${sanitizeZcql(orgId)}'`
+    );
+    if (!owned || owned.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found in your organization.' });
+    }
+
+    const { name, rate, stock, category, tax_percentage, tax_id } = req.body;
     const updateData = { ROWID: rowId };
     if (name !== undefined) updateData.name = name;
     if (rate !== undefined) updateData.rate = parseFloat(rate) || 0;
     if (stock !== undefined) updateData.stock = parseFloat(stock) || 0;
     if (category !== undefined) updateData.category = category;
     if (tax_percentage !== undefined) updateData.tax_percentage = parseFloat(tax_percentage) || 0;
+    if (tax_id !== undefined) updateData.tax_id = tax_id;
 
     const table = catalystApp.datastore().table('Items');
     await table.updateRow(updateData);
@@ -1999,9 +2249,20 @@ app.put('/api/items/:id', async (req, res) => {
  */
 app.delete('/api/items/:id', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Admin');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const rowId = parseInt(req.params.id);
     if (!rowId) return res.status(400).json({ success: false, error: 'Invalid item ID.' });
+
+    const owned = await safeZcql(catalystApp,
+      `SELECT ROWID FROM Items WHERE ROWID = ${rowId} AND org_id = '${sanitizeZcql(orgId)}'`
+    );
+    if (!owned || owned.length === 0) {
+      return res.status(404).json({ success: false, error: 'Item not found in your organization.' });
+    }
 
     const table = catalystApp.datastore().table('Items');
     await table.deleteRow(rowId);
@@ -2019,17 +2280,22 @@ app.delete('/api/items/:id', async (req, res) => {
  */
 app.post('/api/items/stock-adjust', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireRole(req, res, 'Manager');
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const { rowid, delta, reason } = req.body;
     if (!rowid || delta === undefined) {
       return res.status(400).json({ success: false, error: 'rowid and delta are required.' });
     }
 
+    // Fetch the row AND verify org ownership in one query.
     const current = await safeZcql(catalystApp,
-      `SELECT ROWID, stock FROM Items WHERE ROWID = ${parseInt(rowid)}`
+      `SELECT ROWID, stock FROM Items WHERE ROWID = ${parseInt(rowid)} AND org_id = '${sanitizeZcql(orgId)}'`
     );
     if (!current || current.length === 0) {
-      return res.status(404).json({ success: false, error: 'Item not found.' });
+      return res.status(404).json({ success: false, error: 'Item not found in your organization.' });
     }
 
     const currentStock = parseFloat(current[0].Items.stock) || 0;
@@ -2038,7 +2304,7 @@ app.post('/api/items/stock-adjust', async (req, res) => {
     const table = catalystApp.datastore().table('Items');
     await table.updateRow({ ROWID: parseInt(rowid), stock: newStock });
 
-    console.log(`Stock adjust: ROWID=${rowid}, delta=${delta}, old=${currentStock}, new=${newStock}, reason=${reason || 'N/A'}`);
+    console.log(`Stock adjust: ROWID=${rowid}, delta=${delta}, old=${currentStock}, new=${newStock}, reason=${reason || 'N/A'}, org=${orgId}`);
     res.status(200).json({ success: true, message: 'Stock adjusted', old_stock: currentStock, new_stock: newStock });
   } catch (error) {
     console.error('Error adjusting stock:', error.message);
@@ -2115,13 +2381,9 @@ app.post('/api/contacts', async (req, res) => {
  */
 app.get('/api/config/settings', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { orgUser } = orgUserContext;
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
     const orgId = orgUser.org_id;
     const prefix = `org_${orgId}_setting_`;
 
@@ -2129,17 +2391,10 @@ app.get('/api/config/settings', async (req, res) => {
       `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE '${prefix}%'`
     );
 
-    // Backward compatibility fallback for virtual tenant
-    if ((!result || result.length === 0) && orgId === 'org_default') {
-      result = await safeZcql(catalystApp,
-        `SELECT config_key, config_value FROM Configurations WHERE config_key LIKE 'pos_setting_%'`
-      );
-    }
-
     const settings = {};
     if (result && result.length > 0) {
       result.forEach(row => {
-        const key = row.Configurations.config_key.replace(row.Configurations.config_key.startsWith(prefix) ? prefix : 'pos_setting_', '');
+        const key = row.Configurations.config_key.replace(prefix, '');
         let val = row.Configurations.config_value;
         if (val === 'true') val = true;
         else if (val === 'false') val = false;
@@ -2166,35 +2421,30 @@ app.post('/api/config/settings', async (req, res) => {
       return res.status(400).json({ success: false, error: 'settings object is required.' });
     }
 
-    let orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
+    const ctx = await getCurrentOrgUser(req, catalystApp, { allowUnmapped: true });
+    if (ctx.status === 'unauthenticated') {
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
+    const { user } = ctx;
+    let orgId;
 
-    let { user, orgUser } = orgUserContext;
-    let orgId = orgUser.org_id;
-
-    // Check if we need to auto-create the organization and map user during onboarding.
-    // We do this if:
-    // 1. The user has no existing real mapping (i.e. currently mapped to fallback virtual 'org_default'), AND
-    // 2. We are saving onboarding data (e.g. store_name is present).
-    if (orgId === 'org_default' && settings.store_name) {
+    // Onboarding: an unmapped (or first-time) user saving a store_name provisions
+    // a real Organizations row + an OrgUsers master_admin mapping, then keys all
+    // settings under that new org id. Mapped users just persist settings normally.
+    if (ctx.status === 'unmapped' && settings.store_name) {
       try {
         console.log('[ONBOARDING] Initiating multi-tenant organization provisioning for user:', user.email);
-        const orgTable = catalystApp.datastore().table('Organizations');
-        const orgRow = await orgTable.insertRow({
+        const orgRow = await catalystApp.datastore().table('Organizations').insertRow({
           org_name: settings.store_name,
           industry: settings.industry || 'Retail',
           master_admin_user_id: user.user_id,
           zoho_books_org_id: '',
           books_connected: 'false'
         });
-        
         orgId = String(orgRow.ROWID);
         console.log('[ONBOARDING] Created Organizations row with ID:', orgId);
 
-        const orgUserTable = catalystApp.datastore().table('OrgUsers');
-        await orgUserTable.insertRow({
+        await catalystApp.datastore().table('OrgUsers').insertRow({
           org_id: orgId,
           user_id: user.user_id,
           role: 'master_admin',
@@ -2202,10 +2452,14 @@ app.post('/api/config/settings', async (req, res) => {
         });
         console.log('[ONBOARDING] Created OrgUsers master_admin mapping for user_id:', user.user_id);
       } catch (provisionErr) {
-        // If tables do not exist in the Catalyst datastore, we fall back to 'org_default'
-        console.warn('[ONBOARDING] Tables not yet created. Falling back to org_default configuration prefix.', provisionErr.message);
-        orgId = 'org_default';
+        console.error('[ONBOARDING] Provisioning failed:', provisionErr.message);
+        return res.status(500).json({ success: false, error: 'Onboarding failed: ' + provisionErr.message });
       }
+    } else if (ctx.status === 'mapped') {
+      orgId = ctx.orgUser.org_id;
+    } else {
+      // Unmapped user not saving a store_name — nothing to key settings under.
+      return res.status(403).json({ success: false, error: 'User is not onboarded. Save a store name to provision an organization.', needs_onboarding: true });
     }
 
     // Save each setting as an isolated key prefixed with the tenant's ID
@@ -2213,7 +2467,7 @@ app.post('/api/config/settings', async (req, res) => {
     for (const [k, v] of Object.entries(settings)) {
       await safeUpsertConfig(catalystApp, `${prefix}${k}`, String(v));
     }
-    
+
     res.status(200).json({ success: true, message: 'Settings saved.', org_id: orgId });
   } catch (error) {
     console.error('Error saving settings:', error.message);
@@ -2227,13 +2481,9 @@ app.post('/api/config/settings', async (req, res) => {
  */
 app.post('/api/shifts/open', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    if (!orgUserContext) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-
-    const { orgUser } = orgUserContext;
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
     const orgId = orgUser.org_id;
     const { cashier_name, opening_float, open_notes } = req.body;
 
@@ -2267,19 +2517,23 @@ app.post('/api/shifts/open', async (req, res) => {
  */
 app.post('/api/shifts/close', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
+
     const { rowid, actual_cash, close_notes, cash_sales, noncash_sales } = req.body;
 
     if (!rowid || actual_cash === undefined) {
       return res.status(400).json({ success: false, error: 'rowid and actual_cash are required.' });
     }
 
-    // Get current shift
+    // Get current shift — and verify it belongs to the caller's org before closing.
     const existing = await safeZcql(catalystApp,
-      `SELECT ROWID, cashier_name, opening_float, open_notes, org_id FROM Shifts WHERE ROWID = ${parseInt(rowid)}`
+      `SELECT ROWID, cashier_name, opening_float, open_notes, org_id FROM Shifts WHERE ROWID = ${parseInt(rowid)} AND org_id = '${sanitizeZcql(orgId)}'`
     );
     if (!existing || existing.length === 0) {
-      return res.status(404).json({ success: false, error: 'Shift not found.' });
+      return res.status(404).json({ success: false, error: 'Shift not found in your organization.' });
     }
 
     const shift = existing[0].Shifts;
@@ -2316,9 +2570,10 @@ app.post('/api/shifts/close', async (req, res) => {
  */
 app.get('/api/shifts', async (req, res) => {
   try {
-    const catalystApp = catalyst.initialize(req);
-    const orgUserContext = await getCurrentOrgUser(req, catalystApp);
-    const orgId = orgUserContext ? orgUserContext.orgUser.org_id : 'org_default';
+    const ctx = await requireOrg(req, res);
+    if (!ctx) return;
+    const { catalystApp, orgUser } = ctx;
+    const orgId = orgUser.org_id;
 
     let query = 'SELECT ROWID, cashier_name, opening_float, cash_sales, noncash_sales, expected_cash, actual_cash, variance, status, open_notes, close_notes, created_time FROM Shifts';
     query += ` WHERE org_id = '${sanitizeZcql(orgId)}'`;
